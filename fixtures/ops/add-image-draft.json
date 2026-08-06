@@ -1,0 +1,26 @@
+{
+  "operationId": "fixture-add-image-draft",
+  "projectId": "project-m1-test",
+  "actor": {
+    "type": "agent",
+    "id": "fixture-agent"
+  },
+  "baseRevision": 0,
+  "type": "node.add",
+  "payload": {
+    "nodeId": "fixture-image-node",
+    "type": "image",
+    "title": "Forest Image Draft",
+    "position": {
+      "x": 120,
+      "y": 80
+    },
+    "payload": {
+      "prompt": "A quiet forest at dawn",
+      "aspectRatio": "16:9",
+      "quality": "2K",
+      "referenceArtifactIds": []
+    }
+  },
+  "createdAt": "2026-08-06T00:00:00.000Z"
+}

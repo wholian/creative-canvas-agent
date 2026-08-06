@@ -8,6 +8,7 @@
     "server": "node server/index.js",
     "build": "vite build",
     "test:domain": "node --test --experimental-strip-types tests/domain/*.test.ts",
+    "canvasctl": "node --experimental-strip-types scripts/canvasctl.ts",
     "preview": "vite preview",
     "setup:local-models": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'setup-local-models.bat' : 'bash setup-local-models.sh', {stdio: 'inherit'})\""
   },

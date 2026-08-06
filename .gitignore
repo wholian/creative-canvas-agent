@@ -29,6 +29,7 @@ dist-ssr
 
 # data
 library/
+.creative-canvas-agent/
 
 # docs
 docs/cloud_migration_plan.md

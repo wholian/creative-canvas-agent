@@ -98,3 +98,54 @@ export interface NodeDefinition<TPayload = unknown> {
     validatePayload: (input: unknown) => TPayload;
     capabilities: NodeCapability[];
 }
+
+export interface CanvasActor {
+    type: 'user' | 'agent' | 'system';
+    id?: string;
+}
+
+export type CanvasOperationType = 'node.add' | 'node.update';
+
+export interface CanvasOperation<TPayload = unknown> {
+    operationId: string;
+    projectId: string;
+    actor: CanvasActor;
+    baseRevision: number;
+    type: CanvasOperationType;
+    payload: TPayload;
+    createdAt: string;
+}
+
+export interface NodeAddOperationPayload {
+    nodeId?: string;
+    type: string;
+    title?: string;
+    position: Point;
+    payload?: unknown;
+}
+
+export interface NodeUpdatePatch {
+    title?: string;
+    position?: Partial<Point>;
+    payload?: Record<string, unknown>;
+}
+
+export interface NodeUpdateOperationPayload {
+    nodeId: string;
+    patch: NodeUpdatePatch;
+}
+
+export interface StructuredCanvasError {
+    code: string;
+    message: string;
+    path?: string;
+}
+
+export interface CanvasOperationResult {
+    operationId: string;
+    status: 'succeeded' | 'rejected' | 'failed';
+    projectRevision: number;
+    affectedIds: string[];
+    data?: Record<string, unknown>;
+    error?: StructuredCanvasError;
+}
