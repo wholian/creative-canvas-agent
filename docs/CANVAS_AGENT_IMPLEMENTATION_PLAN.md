@@ -12,7 +12,8 @@
 - M1-A / A3 图操作与原子批处理：完成；
 - M1-A / A4 旧工作流迁移：完成；
 - M1-B / B1 只读 UI Adapter：完成；
-- 当前下一步：M1-B / B2 新增与更新节点接入 Operation Runner。
+- M1-B / B2 Agent 新增草稿节点接入 Operation Runner：完成；
+- 当前下一步：将手动新增与节点更新逐项接入 Operation Runner。
 
 ## 1. 推进原则
 
@@ -467,4 +468,4 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-从 Slice B2 开始，先将 Agent 创建草稿节点切换到 Operation Runner，并保留 Legacy Feature Flag；手动节点写入暂不一次性全部迁移。
+继续 Slice B2，将手动新增与节点更新逐项切换到 Operation Runner；Agent 草稿节点路径可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。

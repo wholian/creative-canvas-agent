@@ -18,6 +18,7 @@ import { generateImage, generateVideo } from './services/generationService';
 import { useCanvasNavigation } from './hooks/useCanvasNavigation';
 import { useNodeManagement } from './hooks/useNodeManagement';
 import { useCanvasDomainMirror } from './hooks/useCanvasDomainMirror';
+import { applyAgentDraftActions } from './canvas-adapters/agentCanvasOperationBridge';
 import { useConnectionDragging } from './hooks/useConnectionDragging';
 import { useNodeDragging } from './hooks/useNodeDragging';
 import { useGeneration } from './hooks/useGeneration';
@@ -162,7 +163,22 @@ export default function App() {
   // graph for diagnostics. Existing UI writes still use the legacy state path.
   useCanvasDomainMirror({ nodes, viewport, title: canvasTitle });
 
-  const handleAgentCanvasActions = React.useCallback((actions: CanvasAction[]): CanvasActionExecution[] => {
+  const handleAgentCanvasActions = React.useCallback(async (actions: CanvasAction[]): Promise<CanvasActionExecution[]> => {
+    if (import.meta.env.VITE_CANVAS_OPERATION_BRIDGE !== 'false') {
+      const result = await applyAgentDraftActions({
+        actions,
+        nodes,
+        viewport,
+        title: canvasTitle,
+        canvasSize: { width: window.innerWidth, height: window.innerHeight },
+      });
+      if (result.addedNodes.length > 0) {
+        setNodes(previous => [...previous, ...result.addedNodes]);
+        setSelectedNodeIds(result.addedNodes.map(node => node.id));
+      }
+      return result.executions;
+    }
+
     return actions.map(action => {
       try {
         if (action.type !== 'add_node') {
@@ -188,7 +204,7 @@ export default function App() {
         };
       }
     });
-  }, [addAgentDraftNode, viewport]);
+  }, [addAgentDraftNode, canvasTitle, nodes, setNodes, setSelectedNodeIds, viewport]);
 
   const {
     isDraggingConnection,

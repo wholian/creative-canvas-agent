@@ -18,6 +18,7 @@ import {
 
 export const IMAGE_ASPECT_RATIOS = [
     'Auto', '1:1', '9:16', '16:9', '3:4', '4:3', '3:2', '2:3', '5:4', '4:5', '21:9',
+    '1024x1024', '1536x1024', '1024x1536',
 ] as const;
 export const IMAGE_QUALITIES = ['Auto', '1K', '2K', '4K'] as const;
 export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16'] as const;
