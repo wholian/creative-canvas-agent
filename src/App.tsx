@@ -17,6 +17,7 @@ import { CanvasAction, CanvasActionExecution } from './hooks/useChatAgent';
 import { generateImage, generateVideo } from './services/generationService';
 import { useCanvasNavigation } from './hooks/useCanvasNavigation';
 import { useNodeManagement } from './hooks/useNodeManagement';
+import { useCanvasDomainMirror } from './hooks/useCanvasDomainMirror';
 import { useConnectionDragging } from './hooks/useConnectionDragging';
 import { useNodeDragging } from './hooks/useNodeDragging';
 import { useGeneration } from './hooks/useGeneration';
@@ -156,6 +157,10 @@ export default function App() {
     clearSelection,
     handleSelectTypeFromMenu
   } = useNodeManagement();
+
+  // B1 read-only adapter: mirrors the legacy React canvas into the new domain
+  // graph for diagnostics. Existing UI writes still use the legacy state path.
+  useCanvasDomainMirror({ nodes, viewport, title: canvasTitle });
 
   const handleAgentCanvasActions = React.useCallback((actions: CanvasAction[]): CanvasActionExecution[] => {
     return actions.map(action => {
