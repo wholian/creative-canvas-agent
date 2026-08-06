@@ -23,7 +23,7 @@ const router = express.Router();
 router.post('/generate-image', async (req, res) => {
     try {
         const { nodeId, prompt, aspectRatio, resolution, imageBase64: rawImageBase64, imageModel, klingReferenceMode, klingFaceIntensity, klingSubjectIntensity } = req.body;
-        const { GEMINI_API_KEY, KLING_ACCESS_KEY, KLING_SECRET_KEY, OPENAI_API_KEY, IMAGES_DIR } = req.app.locals;
+        const { GEMINI_API_KEY, GEMINI_BASE_URL, GEMINI_IMAGE_MODEL, KLING_ACCESS_KEY, KLING_SECRET_KEY, OPENAI_API_KEY, IMAGES_DIR } = req.app.locals;
 
         // Determine provider
         const isKlingModel = imageModel && imageModel.startsWith('kling-');
@@ -150,7 +150,9 @@ router.post('/generate-image', async (req, res) => {
                 imageBase64Array,
                 aspectRatio,
                 resolution,
-                apiKey: GEMINI_API_KEY
+                apiKey: GEMINI_API_KEY,
+                baseUrl: GEMINI_BASE_URL,
+                modelName: GEMINI_IMAGE_MODEL,
             });
         }
 

@@ -30,6 +30,28 @@ export interface ChatSession {
     messageCount: number;
 }
 
+export interface CanvasAction {
+    type: 'add_node';
+    nodeType: 'image' | 'video';
+    prompt: string;
+    toolCallId: string;
+    imageModel?: string;
+    modelName?: string;
+    aspectRatio?: string;
+    resolution?: string;
+}
+
+export interface CanvasActionExecution {
+    toolCallId: string;
+    status: 'succeeded' | 'failed';
+    nodeId?: string;
+    error?: string;
+}
+
+interface UseChatAgentOptions {
+    onCanvasActions?: (actions: CanvasAction[]) => CanvasActionExecution[] | Promise<CanvasActionExecution[]>;
+}
+
 interface UseChatAgentReturn {
     messages: ChatMessage[];
     topic: string | null;
@@ -68,7 +90,7 @@ function generateMessageId(): string {
 // HOOK
 // ============================================================================
 
-export function useChatAgent(): UseChatAgentReturn {
+export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): UseChatAgentReturn {
     // --- State ---
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [topic, setTopic] = useState<string | null>(null);
@@ -127,6 +149,10 @@ export function useChatAgent(): UseChatAgentReturn {
             }
 
             const data = await response.json();
+
+            if (Array.isArray(data.actions) && data.actions.length > 0) {
+                onCanvasActions?.(data.actions as CanvasAction[]);
+            }
 
             // Convert messages to ChatMessage format
             const loadedMessages: ChatMessage[] = data.messages.map((msg: any, index: number) => ({
@@ -212,7 +238,34 @@ export function useChatAgent(): UseChatAgentReturn {
                 throw new Error(errData.error || response.statusText);
             }
 
-            const data = await response.json();
+            let data = await response.json();
+
+            // A tool turn pauses here. The browser creates the node first,
+            // then returns the real node ID so the model receives an actual
+            // role=tool execution result rather than a merely accepted action.
+            if (data.pendingActionId && Array.isArray(data.actions)) {
+                let executions: CanvasActionExecution[] = [];
+                try {
+                    executions = await onCanvasActions?.(data.actions as CanvasAction[]) || [];
+                } catch (executionError: unknown) {
+                    executions = (data.actions as CanvasAction[]).map(action => ({
+                        toolCallId: action.toolCallId,
+                        status: 'failed' as const,
+                        error: executionError instanceof Error ? executionError.message : 'The browser could not apply this canvas action.',
+                    }));
+                }
+
+                const completionResponse = await fetch(`/api/chat/actions/${data.pendingActionId}/complete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ executions }),
+                });
+                if (!completionResponse.ok) {
+                    const errData = await completionResponse.json().catch(() => ({}));
+                    throw new Error(errData.error || completionResponse.statusText);
+                }
+                data = await completionResponse.json();
+            }
 
             // Add AI response
             const aiMessage: ChatMessage = {
@@ -237,7 +290,7 @@ export function useChatAgent(): UseChatAgentReturn {
         } finally {
             setIsLoading(false);
         }
-    }, [ensureSession, refreshSessions]);
+    }, [ensureSession, onCanvasActions, refreshSessions]);
 
     /**
      * Start a new chat session

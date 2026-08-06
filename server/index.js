@@ -51,6 +51,9 @@ app.use('/library', (req, res, next) => {
 
 
 const API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 
 if (!API_KEY) {
     console.warn("SERVER WARNING: GEMINI_API_KEY is not set in environment or .env file.");
@@ -104,6 +107,9 @@ if (!FAL_API_KEY) {
 
 // Set up app.locals for sharing config with route modules
 app.locals.GEMINI_API_KEY = API_KEY;
+app.locals.GEMINI_BASE_URL = GEMINI_BASE_URL;
+app.locals.GEMINI_MODEL = GEMINI_MODEL;
+app.locals.GEMINI_IMAGE_MODEL = GEMINI_IMAGE_MODEL;
 app.locals.KLING_ACCESS_KEY = KLING_ACCESS_KEY;
 app.locals.KLING_SECRET_KEY = KLING_SECRET_KEY;
 app.locals.HAILUO_API_KEY = HAILUO_API_KEY;
@@ -1162,17 +1168,35 @@ app.post('/api/chat', async (req, res) => {
             return res.status(400).json({ error: "message or media is required" });
         }
 
-        const result = await chatAgent.sendMessage(sessionId, message, media, API_KEY);
+        const result = await chatAgent.sendMessage(sessionId, message, media, {
+            apiKey: API_KEY,
+            baseUrl: GEMINI_BASE_URL,
+            modelName: GEMINI_MODEL,
+        });
 
         res.json({
             success: true,
             response: result.response,
+            actions: result.actions,
+            pendingActionId: result.pendingActionId,
             topic: result.topic,
             messageCount: result.messageCount
         });
     } catch (error) {
         console.error("Chat API Error:", error);
         res.status(500).json({ error: error.message || "Chat failed" });
+    }
+});
+
+// The browser calls this only after it has actually created (or failed to
+// create) the requested canvas node. Its result becomes role=tool context.
+app.post('/api/chat/actions/:id/complete', async (req, res) => {
+    try {
+        const result = await chatAgent.completeCanvasAction(req.params.id, req.body?.executions);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error("Canvas action completion error:", error);
+        res.status(400).json({ error: error.message || "Canvas action completion failed" });
     }
 });
 

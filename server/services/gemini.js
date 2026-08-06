@@ -10,19 +10,44 @@ import { GoogleGenAI } from '@google/genai';
 // CLIENT SETUP
 // ============================================================================
 
-let _ai = null;
+const clients = new Map();
+
+/**
+ * The Google SDK appends its own /v1beta/... path. A Chat Completions base URL
+ * normally ends in /v1, so remove that API-version suffix before passing it to
+ * the Gemini-native SDK to avoid /v1/v1beta/... requests.
+ */
+function normalizeGeminiSdkBaseUrl(baseUrl) {
+    if (!baseUrl) return undefined;
+
+    const url = new URL(baseUrl);
+    const pathname = url.pathname.replace(/\/+$/, "");
+    if (/^\/v\d+(?:alpha|beta)?$/i.test(pathname)) {
+        url.pathname = "";
+    }
+    return url.toString().replace(/\/$/, "");
+}
 
 /**
  * Get or create Gemini AI client
  */
-export function getGeminiClient(apiKey) {
-    if (!_ai) {
-        if (!apiKey) {
-            throw new Error('Gemini API key not configured');
-        }
-        _ai = new GoogleGenAI({ apiKey });
+export function getGeminiClient(apiKey, baseUrl) {
+    if (!apiKey) {
+        throw new Error('Gemini API key not configured');
     }
-    return _ai;
+
+    const normalizedBaseUrl = normalizeGeminiSdkBaseUrl(baseUrl);
+    const cacheKey = `${apiKey}:${normalizedBaseUrl || "google-default"}`;
+    if (!clients.has(cacheKey)) {
+        clients.set(cacheKey, new GoogleGenAI({
+            apiKey,
+            httpOptions: {
+                ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}),
+                timeout: 60_000,
+            },
+        }));
+    }
+    return clients.get(cacheKey);
 }
 
 // ============================================================================
@@ -33,9 +58,8 @@ export function getGeminiClient(apiKey) {
  * Generate image using Gemini
  * @returns {Promise<Buffer>} Image buffer
  */
-export async function generateGeminiImage({ prompt, imageBase64Array, aspectRatio, resolution, apiKey }) {
-    const ai = getGeminiClient(apiKey);
-    const modelName = 'gemini-3-pro-image-preview';
+export async function generateGeminiImage({ prompt, imageBase64Array, aspectRatio, resolution, apiKey, baseUrl, modelName = 'gemini-2.5-flash-image' }) {
+    const ai = getGeminiClient(apiKey, baseUrl);
 
     const parts = [];
 

@@ -12,8 +12,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { createChatGraph, generateTopicTitle } from "./graph/chatGraph.js";
+import { createChatGraph, generateTopicTitle, startCanvasToolAgent, completeCanvasToolAgent } from "./graph/chatGraph.js";
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
 
 // ============================================================================
@@ -81,6 +82,8 @@ function resolveImageToBase64(imageInput) {
  * Sessions are also persisted to disk after each message
  */
 const sessionCache = new Map();
+const pendingCanvasActions = new Map();
+const PENDING_ACTION_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Convert multimodal content to text representation for serialization
@@ -292,10 +295,10 @@ export function getSessionData(sessionId) {
  * @param {string} sessionId - Session identifier
  * @param {string} content - User message content
  * @param {Array} media - Optional media attachments [{ type, url, base64 }, ...]
- * @param {string} apiKey - Google AI API key
+ * @param {object} modelConfig - API key and optional OpenAI-compatible gateway configuration
  * @returns {Promise<object>} { response: string, topic?: string }
  */
-export async function sendMessage(sessionId, content, media, apiKey) {
+export async function sendMessage(sessionId, content, media, modelConfig) {
     const session = getSession(sessionId);
     const graph = createChatGraph();
 
@@ -358,14 +361,35 @@ export async function sendMessage(sessionId, content, media, apiKey) {
 
     console.log(`[Chat] Sending ${session.messages.length} messages to LLM`);
 
-    // Invoke the graph
-    const result = await graph.invoke(
-        { messages: session.messages },
-        { configurable: { apiKey } }
-    );
-
-    // Extract AI response from result
-    const aiResponse = result.messages[result.messages.length - 1];
+    let aiResponse;
+    let actions = [];
+    if (modelConfig.baseUrl) {
+        const toolResult = await startCanvasToolAgent(session.messages, modelConfig);
+        if (toolResult.status === "awaiting_client") {
+            const pendingActionId = crypto.randomUUID();
+            pendingCanvasActions.set(pendingActionId, {
+                sessionId,
+                continuation: toolResult.continuation,
+                modelConfig,
+                createdAt: Date.now(),
+            });
+            saveSession(sessionId, session);
+            return {
+                response: null,
+                actions: toolResult.actions,
+                pendingActionId,
+                topic: session.topic,
+                messageCount: session.messages.length,
+            };
+        }
+        aiResponse = new AIMessage(toolResult.response);
+    } else {
+        const result = await graph.invoke(
+            { messages: session.messages },
+            { configurable: modelConfig }
+        );
+        aiResponse = result.messages[result.messages.length - 1];
+    }
     session.messages.push(aiResponse);
 
     // Convert the multimodal user message to text for future context
@@ -389,7 +413,7 @@ export async function sendMessage(sessionId, content, media, apiKey) {
     let topic = session.topic;
     if (session.messages.length === 2 && !session.topic) {
         try {
-            topic = await generateTopicTitle(session.messages, apiKey);
+            topic = await generateTopicTitle(session.messages, modelConfig.apiKey, modelConfig);
             session.topic = topic;
         } catch (err) {
             console.error("Failed to generate topic:", err);
@@ -402,9 +426,56 @@ export async function sendMessage(sessionId, content, media, apiKey) {
 
     return {
         response: aiResponse.content.toString(),
+        actions,
         topic: topic,
         messageCount: session.messages.length,
     };
+}
+
+/**
+ * Complete a browser-owned canvas action and then send the actual result back
+ * to the model as its role=tool message.
+ */
+export async function completeCanvasAction(pendingActionId, executions) {
+    const pending = pendingCanvasActions.get(pendingActionId);
+    if (!pending) {
+        throw new Error("Canvas action is missing or has already been completed.");
+    }
+    if (Date.now() - pending.createdAt > PENDING_ACTION_TTL_MS) {
+        pendingCanvasActions.delete(pendingActionId);
+        throw new Error("Canvas action expired before the browser confirmed it.");
+    }
+
+    try {
+        const completed = await completeCanvasToolAgent(
+            pending.continuation,
+            executions,
+            pending.modelConfig
+        );
+        const session = getSession(pending.sessionId);
+        const aiResponse = new AIMessage(completed.response);
+        session.messages.push(aiResponse);
+
+        let topic = session.topic;
+        if (session.messages.length === 2 && !topic) {
+            try {
+                topic = await generateTopicTitle(session.messages, pending.modelConfig.apiKey, pending.modelConfig);
+                session.topic = topic;
+            } catch (err) {
+                console.error("Failed to generate topic:", err);
+                topic = "New Chat";
+            }
+        }
+
+        saveSession(pending.sessionId, session);
+        return {
+            response: aiResponse.content.toString(),
+            topic,
+            messageCount: session.messages.length,
+        };
+    } finally {
+        pendingCanvasActions.delete(pendingActionId);
+    }
 }
 
 // ============================================================================
@@ -419,6 +490,7 @@ export default {
     listSessions,
     getSessionData,
     sendMessage,
+    completeCanvasAction,
     createChatGraph,
     generateTopicTitle,
 };

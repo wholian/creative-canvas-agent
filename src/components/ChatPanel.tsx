@@ -10,7 +10,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, History, Paperclip, Globe, Settings, Send, Sparkles, Plus, Loader2, ChevronLeft, Trash2, MessageSquare } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
-import { useChatAgent, ChatMessage as ChatMessageType, ChatSession } from '../hooks/useChatAgent';
+import {
+    useChatAgent,
+    ChatMessage as ChatMessageType,
+    ChatSession,
+    CanvasAction,
+    CanvasActionExecution,
+} from '../hooks/useChatAgent';
 
 // ============================================================================
 // TYPES
@@ -29,6 +35,7 @@ interface ChatPanelProps {
     userName?: string;
     isDraggingNode?: boolean;
     onNodeDrop?: (nodeId: string, url: string, type: 'image' | 'video') => void;
+    onCanvasActions?: (actions: CanvasAction[]) => CanvasActionExecution[] | Promise<CanvasActionExecution[]>;
     canvasTheme?: 'dark' | 'light';
 }
 
@@ -41,6 +48,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     onClose,
     userName = 'Creator',
     isDraggingNode = false,
+    onCanvasActions,
     canvasTheme = 'dark',
 }) => {
     // --- State ---
@@ -66,7 +74,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         loadSession,
         deleteSession,
         hasMessages,
-    } = useChatAgent();
+    } = useChatAgent({ onCanvasActions });
 
     // Refs
     const messagesEndRef = useRef<HTMLDivElement>(null);

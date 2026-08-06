@@ -58,6 +58,41 @@ export const useNodeManagement = () => {
     };
 
     /**
+     * Creates an editable draft node from an approved chat action. This does
+     * not call a generation provider; it only changes the same canvas state a
+     * manual Add Node action changes.
+     */
+    const addAgentDraftNode = (
+        type: NodeType.IMAGE | NodeType.VIDEO,
+        prompt: string,
+        viewport: Viewport,
+        imageSettings?: { imageModel?: string; modelName?: string; aspectRatio?: string; resolution?: string }
+    ) => {
+        const nodeWidth = 340;
+        const offset = (nodes.length % 5) * 36;
+        const x = (window.innerWidth / 2 - viewport.x) / viewport.zoom - nodeWidth / 2 + offset;
+        const y = (window.innerHeight / 2 - viewport.y) / viewport.zoom - 130 + offset;
+        const newNode: NodeData = {
+            id: crypto.randomUUID(),
+            type,
+            title: type === NodeType.IMAGE ? 'AI Image Draft' : 'AI Video Draft',
+            x,
+            y,
+            prompt,
+            status: NodeStatus.IDLE,
+            model: imageSettings?.modelName || (type === NodeType.IMAGE ? 'Nano Banana Pro' : 'Banana Pro'),
+            imageModel: type === NodeType.IMAGE ? (imageSettings?.imageModel || 'gemini-pro') : undefined,
+            aspectRatio: imageSettings?.aspectRatio || 'Auto',
+            resolution: imageSettings?.resolution || (type === NodeType.IMAGE ? '1K' : 'Auto'),
+            parentIds: [],
+        };
+
+        setNodes(prev => [...prev, newNode]);
+        setSelectedNodeIds([newNode.id]);
+        return newNode.id;
+    };
+
+    /**
      * Updates a node with partial data
      * @param id - Node ID to update
      * @param updates - Partial node data to merge
@@ -174,6 +209,7 @@ export const useNodeManagement = () => {
         selectedNodeIds,
         setSelectedNodeIds,
         addNode,
+        addAgentDraftNode,
         updateNode,
         deleteNode,
         deleteNodes,

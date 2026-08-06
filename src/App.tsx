@@ -13,6 +13,7 @@ import { CanvasNode } from './components/canvas/CanvasNode';
 import { ConnectionsLayer } from './components/canvas/ConnectionsLayer';
 import { ContextMenu } from './components/ContextMenu';
 import { ContextMenuState, NodeData, NodeStatus, NodeType } from './types';
+import { CanvasAction, CanvasActionExecution } from './hooks/useChatAgent';
 import { generateImage, generateVideo } from './services/generationService';
 import { useCanvasNavigation } from './hooks/useCanvasNavigation';
 import { useNodeManagement } from './hooks/useNodeManagement';
@@ -148,12 +149,41 @@ export default function App() {
     selectedNodeIds,
     setSelectedNodeIds,
     addNode,
+    addAgentDraftNode,
     updateNode,
     deleteNode,
     deleteNodes,
     clearSelection,
     handleSelectTypeFromMenu
   } = useNodeManagement();
+
+  const handleAgentCanvasActions = React.useCallback((actions: CanvasAction[]): CanvasActionExecution[] => {
+    return actions.map(action => {
+      try {
+        if (action.type !== 'add_node') {
+          return { toolCallId: action.toolCallId, status: 'failed', error: 'Unsupported canvas action.' };
+        }
+        const nodeId = addAgentDraftNode(
+          action.nodeType === 'video' ? NodeType.VIDEO : NodeType.IMAGE,
+          action.prompt,
+          viewport,
+          {
+            imageModel: action.imageModel,
+            modelName: action.modelName,
+            aspectRatio: action.aspectRatio,
+            resolution: action.resolution,
+          }
+        );
+        return { toolCallId: action.toolCallId, status: 'succeeded', nodeId };
+      } catch (error) {
+        return {
+          toolCallId: action.toolCallId,
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'The browser could not create this canvas node.',
+        };
+      }
+    });
+  }, [addAgentDraftNode, viewport]);
 
   const {
     isDraggingConnection,
@@ -1018,7 +1048,13 @@ export default function App() {
       {!storyboardGenerator.isModalOpen && !isTikTokModalOpen && (
         <>
           <ChatBubble onClick={toggleChat} isOpen={isChatOpen} />
-          <ChatPanel isOpen={isChatOpen} onClose={closeChat} isDraggingNode={isDraggingNodeToChat} canvasTheme={canvasTheme} />
+          <ChatPanel
+            isOpen={isChatOpen}
+            onClose={closeChat}
+            isDraggingNode={isDraggingNodeToChat}
+            onCanvasActions={handleAgentCanvasActions}
+            canvasTheme={canvasTheme}
+          />
         </>
       )}
 
