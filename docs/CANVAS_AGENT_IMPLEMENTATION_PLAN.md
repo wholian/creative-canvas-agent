@@ -1,8 +1,17 @@
 # Creative Canvas Agent 实施计划
 
-> 状态：Draft，待确认后执行
+> 状态：Active
 > 日期：2026-08-06
 > 上位文档：[Creative Canvas Agent v0.1 Spec](./CANVAS_AGENT_V0_1_SPEC.md)
+
+## 当前进度
+
+- M0 基线冻结：完成；
+- M1-A / A1 领域类型与 Schema：完成；
+- M1-A / A2 Operation Runner 与 CLI：完成；
+- M1-A / A3 图操作与原子批处理：完成；
+- M1-A / A4 旧工作流迁移：完成；
+- 当前下一步：M1-B / B1 只读 UI Adapter。
 
 ## 1. 推进原则
 
@@ -457,4 +466,4 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-从 Slice M0.1 开始，只做工作区基线审计，不修改运行代码。审计完成并确认基线后，再进入 M0.2。
+从 Slice B1 开始，让新 Canvas Domain 只读接收现有 React 画布状态并报告差异；这一阶段不切换 UI 写入路径。

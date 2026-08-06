@@ -2,7 +2,7 @@
 
 > 状态：Draft，供讨论，不代表所有条目均已确认
 > 创建日期：2026-08-06
-> 目标仓库：TwitCanva
+> 目标仓库：creative-canvas-agent（基于 TwitCanva）
 > 相关决策记录：[CREATIVE_CANVAS_AGENT_ARCHITECTURE.md](../CREATIVE_CANVAS_AGENT_ARCHITECTURE.md)
 > 实施路线：[CANVAS_AGENT_IMPLEMENTATION_PLAN.md](./CANVAS_AGENT_IMPLEMENTATION_PLAN.md)
 
