@@ -33,7 +33,7 @@ function imageNode(overrides: Record<string, unknown> = {}) {
 
 test('built-in registry exposes text, image, and video definitions', () => {
     const registry = createBuiltInNodeRegistry();
-    assert.deepEqual(registry.list().map(definition => definition.type), ['text', 'image', 'video']);
+    assert.deepEqual(registry.list().map(definition => definition.type), ['text', 'image', 'video', 'legacy']);
     assert.deepEqual(registry.get('image').capabilities, ['editable', 'generatable', 'connectable']);
 });
 
@@ -46,6 +46,7 @@ test('valid image node is normalized without losing its payload', () => {
         aspectRatio: '16:9',
         quality: '2K',
         referenceArtifactIds: [],
+        legacyResultUrl: undefined,
     });
 });
 

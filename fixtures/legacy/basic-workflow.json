@@ -1,0 +1,48 @@
+{
+  "id": "legacy-project",
+  "title": "Legacy Story",
+  "nodes": [
+    {
+      "id": "legacy-text",
+      "type": "Text",
+      "x": 10,
+      "y": 20,
+      "prompt": "A fox enters the forest",
+      "status": "idle",
+      "model": "default",
+      "aspectRatio": "16:9",
+      "resolution": "Auto"
+    },
+    {
+      "id": "legacy-image",
+      "type": "Image",
+      "x": 400,
+      "y": 20,
+      "prompt": "A small fox beneath ancient trees",
+      "status": "success",
+      "model": "Nano Banana Pro",
+      "imageModel": "gemini-pro",
+      "aspectRatio": "16:9",
+      "resolution": "2K",
+      "resultUrl": "/library/images/fox.png",
+      "parentIds": ["legacy-text"]
+    },
+    {
+      "id": "legacy-editor",
+      "type": "Image Editor",
+      "x": 800,
+      "y": 20,
+      "prompt": "",
+      "status": "idle",
+      "model": "editor",
+      "aspectRatio": "16:9",
+      "resolution": "Auto",
+      "editorElements": [{ "id": "arrow-1", "type": "arrow" }],
+      "parentIds": ["legacy-image", "missing-node"]
+    }
+  ],
+  "groups": [],
+  "viewport": { "x": 30, "y": -20, "zoom": 0.8 },
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-02T00:00:00.000Z"
+}

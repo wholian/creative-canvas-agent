@@ -1,5 +1,6 @@
 import type {
     ImageNodePayload,
+    LegacyNodePayload,
     NodeDefinition,
     TextNodePayload,
     VideoNodePayload,
@@ -85,6 +86,7 @@ const imageNodeDefinition: NodeDefinition<ImageNodePayload> = {
             aspectRatio: readOptionalEnum(input, 'aspectRatio', IMAGE_ASPECT_RATIOS, 'payload'),
             quality: readOptionalEnum(input, 'quality', IMAGE_QUALITIES, 'payload'),
             referenceArtifactIds: readStringArray(input, 'referenceArtifactIds', 'payload'),
+            legacyResultUrl: readOptionalString(input, 'legacyResultUrl', 'payload'),
         };
     },
     capabilities: ['editable', 'generatable', 'connectable'],
@@ -107,16 +109,34 @@ const videoNodeDefinition: NodeDefinition<VideoNodePayload> = {
             startFrameArtifactId: readOptionalString(input, 'startFrameArtifactId', 'payload'),
             endFrameArtifactId: readOptionalString(input, 'endFrameArtifactId', 'payload'),
             generateAudio: readOptionalBoolean(input, 'generateAudio', 'payload'),
+            legacyResultUrl: readOptionalString(input, 'legacyResultUrl', 'payload'),
+            legacyLastFrameUrl: readOptionalString(input, 'legacyLastFrameUrl', 'payload'),
         };
     },
     capabilities: ['editable', 'generatable', 'connectable'],
+};
+
+const legacyNodeDefinition: NodeDefinition<LegacyNodePayload> = {
+    type: 'legacy',
+    version: 1,
+    title: 'Legacy Node',
+    defaultSize: { width: 340, height: 240 },
+    defaultPayload: () => ({ legacyType: 'Unknown', data: {} }),
+    validatePayload(input): LegacyNodePayload {
+        assertRecord(input, 'payload');
+        const legacyType = readRequiredString(input, 'legacyType', 'payload');
+        assertRecord(input.data, 'payload.data');
+        return { legacyType, data: structuredClone(input.data) };
+    },
+    capabilities: ['connectable'],
 };
 
 export function createBuiltInNodeRegistry(): NodeRegistry {
     return new NodeRegistry()
         .register(textNodeDefinition)
         .register(imageNodeDefinition)
-        .register(videoNodeDefinition);
+        .register(videoNodeDefinition)
+        .register(legacyNodeDefinition);
 }
 
 export const builtInNodeRegistry = createBuiltInNodeRegistry();

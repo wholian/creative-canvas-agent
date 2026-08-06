@@ -26,6 +26,7 @@ export interface ImageNodePayload {
     aspectRatio?: string;
     quality?: string;
     referenceArtifactIds: string[];
+    legacyResultUrl?: string;
 }
 
 export interface VideoNodePayload {
@@ -37,12 +38,20 @@ export interface VideoNodePayload {
     startFrameArtifactId?: string;
     endFrameArtifactId?: string;
     generateAudio?: boolean;
+    legacyResultUrl?: string;
+    legacyLastFrameUrl?: string;
+}
+
+export interface LegacyNodePayload {
+    legacyType: string;
+    data: Record<string, unknown>;
 }
 
 export interface BuiltInNodePayloadMap {
     text: TextNodePayload;
     image: ImageNodePayload;
     video: VideoNodePayload;
+    legacy: LegacyNodePayload;
 }
 
 export interface CanvasNode<TPayload = unknown> {

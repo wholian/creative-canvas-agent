@@ -5,3 +5,4 @@ export * from './projectValidation.ts';
 export * from './projectFactory.ts';
 export * from './store.ts';
 export * from './operationRunner.ts';
+export * from './legacyMigration.ts';
