@@ -3,6 +3,7 @@ import type {
     CanvasOperation,
     CanvasOperationResult,
     CanvasProject,
+    ConnectionAddOperationPayload,
     NodeAddOperationPayload,
 } from './types.ts';
 import type { CanvasProjectStore } from './store.ts';
@@ -55,7 +56,7 @@ function validateEnvelope(operation: CanvasOperation): void {
     if (!Number.isInteger(operation.baseRevision) || operation.baseRevision < 0) {
         throw new CanvasValidationError('invalid_value', 'operation.baseRevision', 'operation.baseRevision must be a non-negative integer.');
     }
-    if (!['node.add', 'node.update'].includes(operation.type)) {
+    if (!['node.add', 'node.update', 'node.delete', 'connection.add', 'connection.delete'].includes(operation.type)) {
         throw new CanvasValidationError('invalid_value', 'operation.type', `Unsupported operation type: ${operation.type}.`);
     }
     if (!operation.actor || !['user', 'agent', 'system'].includes(operation.actor.type)) {
@@ -114,9 +115,24 @@ export class CanvasOperationRunner {
                 );
             }
 
-            const result = operation.type === 'node.add'
-                ? this.addNode(project, operation)
-                : this.updateNode(project, operation);
+            let result: CanvasOperationResult;
+            switch (operation.type) {
+                case 'node.add':
+                    result = this.addNode(project, operation);
+                    break;
+                case 'node.update':
+                    result = this.updateNode(project, operation);
+                    break;
+                case 'node.delete':
+                    result = this.deleteNode(project, operation);
+                    break;
+                case 'connection.add':
+                    result = this.addConnection(project, operation);
+                    break;
+                case 'connection.delete':
+                    result = this.deleteConnection(project, operation);
+                    break;
+            }
             await this.store.save(project);
             this.completed.set(idempotencyKey, { fingerprint, result: cloneResult(result) });
             return result;
@@ -135,6 +151,40 @@ export class CanvasOperationRunner {
                 },
             };
         }
+    }
+
+    async executeBatch(
+        operations: CanvasOperation[],
+        { atomic = true }: { atomic?: boolean } = {},
+    ): Promise<CanvasOperationResult[]> {
+        if (!atomic) {
+            const results: CanvasOperationResult[] = [];
+            for (const operation of operations) results.push(await this.execute(operation));
+            return results;
+        }
+        if (operations.length === 0) return [];
+        const projectId = operations[0].projectId;
+        if (operations.some(operation => operation.projectId !== projectId)) {
+            throw new Error('Atomic canvas batches must target one project.');
+        }
+        const original = await this.store.get(projectId);
+        if (!original) return [rejected(operations[0], 0, 'project_not_found', `Canvas project not found: ${projectId}.`)];
+        const completedBefore = new Set(this.completed.keys());
+        const results: CanvasOperationResult[] = [];
+        for (const operation of operations) {
+            const result = await this.execute(operation);
+            results.push(result);
+            if (result.status !== 'succeeded') {
+                await this.store.save(original);
+                for (const key of this.completed.keys()) {
+                    if (!completedBefore.has(key)) this.completed.delete(key);
+                }
+                return results.map(item => item.status === 'succeeded'
+                    ? rejected({ operationId: item.operationId }, original.revision, 'transaction_rolled_back', 'The atomic canvas batch was rolled back.')
+                    : { ...item, projectRevision: original.revision });
+            }
+        }
+        return results;
     }
 
     private addNode(project: CanvasProject, operation: CanvasOperation): CanvasOperationResult {
@@ -233,6 +283,108 @@ export class CanvasOperationRunner {
             projectRevision: project.revision,
             affectedIds: [updated.id],
             data: { nodeId: updated.id, node: structuredClone(updated) },
+        };
+    }
+
+    private deleteNode(project: CanvasProject, operation: CanvasOperation): CanvasOperationResult {
+        const payload = operation.payload;
+        assertRecord(payload, 'operation.payload');
+        const nodeId = payload.nodeId;
+        if (typeof nodeId !== 'string' || !nodeId.trim()) {
+            throw new CanvasValidationError('missing_field', 'operation.payload.nodeId', 'operation.payload.nodeId is required.');
+        }
+        const node = project.nodes.find(candidate => candidate.id === nodeId);
+        if (!node) {
+            throw new CanvasValidationError('invalid_value', 'operation.payload.nodeId', `Canvas node not found: ${nodeId}.`);
+        }
+        if (node.locked && operation.actor.type === 'agent') {
+            throw new CanvasValidationError('invalid_value', 'operation.payload.nodeId', `Canvas node is locked: ${nodeId}.`);
+        }
+        const deletedConnectionIds = project.connections
+            .filter(connection => connection.from.nodeId === nodeId || connection.to.nodeId === nodeId)
+            .map(connection => connection.id);
+        project.nodes = project.nodes.filter(candidate => candidate.id !== nodeId);
+        project.connections = project.connections.filter(connection => !deletedConnectionIds.includes(connection.id));
+        project.revision += 1;
+        project.updatedAt = this.now();
+        return {
+            operationId: operation.operationId,
+            status: 'succeeded',
+            projectRevision: project.revision,
+            affectedIds: [nodeId, ...deletedConnectionIds],
+            data: { nodeId, deletedConnectionIds },
+        };
+    }
+
+    private addConnection(project: CanvasProject, operation: CanvasOperation): CanvasOperationResult {
+        const rawPayload = operation.payload;
+        assertRecord(rawPayload, 'operation.payload');
+        const payload = rawPayload as unknown as ConnectionAddOperationPayload;
+        assertRecord(payload.from, 'operation.payload.from');
+        assertRecord(payload.to, 'operation.payload.to');
+        if (typeof payload.from.nodeId !== 'string' || typeof payload.to.nodeId !== 'string') {
+            throw new CanvasValidationError('missing_field', 'operation.payload', 'Connection endpoints require nodeId.');
+        }
+        const nodeIds = new Set(project.nodes.map(node => node.id));
+        if (!nodeIds.has(payload.from.nodeId) || !nodeIds.has(payload.to.nodeId)) {
+            throw new CanvasValidationError('invalid_value', 'operation.payload', 'Both connection endpoints must reference existing nodes.');
+        }
+        if (!['reference', 'sequence', 'input'].includes(payload.kind)) {
+            throw new CanvasValidationError('invalid_value', 'operation.payload.kind', 'Connection kind must be reference, sequence, or input.');
+        }
+        const duplicate = project.connections.find(connection =>
+            connection.from.nodeId === payload.from.nodeId
+            && connection.from.port === payload.from.port
+            && connection.to.nodeId === payload.to.nodeId
+            && connection.to.port === payload.to.port
+            && connection.kind === payload.kind,
+        );
+        if (duplicate) {
+            throw new CanvasValidationError('invalid_value', 'operation.payload', `Equivalent connection already exists: ${duplicate.id}.`);
+        }
+        const connectionId = payload.connectionId || this.idFactory();
+        if (project.connections.some(connection => connection.id === connectionId)) {
+            throw new CanvasValidationError('invalid_value', 'operation.payload.connectionId', `Canvas connection already exists: ${connectionId}.`);
+        }
+        const timestamp = this.now();
+        const connection = {
+            id: connectionId,
+            from: structuredClone(payload.from),
+            to: structuredClone(payload.to),
+            kind: payload.kind,
+            createdAt: timestamp,
+        };
+        project.connections.push(connection);
+        project.revision += 1;
+        project.updatedAt = timestamp;
+        return {
+            operationId: operation.operationId,
+            status: 'succeeded',
+            projectRevision: project.revision,
+            affectedIds: [connectionId],
+            data: { connectionId, connection: structuredClone(connection) },
+        };
+    }
+
+    private deleteConnection(project: CanvasProject, operation: CanvasOperation): CanvasOperationResult {
+        const payload = operation.payload;
+        assertRecord(payload, 'operation.payload');
+        const connectionId = payload.connectionId;
+        if (typeof connectionId !== 'string' || !connectionId.trim()) {
+            throw new CanvasValidationError('missing_field', 'operation.payload.connectionId', 'operation.payload.connectionId is required.');
+        }
+        if (!project.connections.some(connection => connection.id === connectionId)) {
+            throw new CanvasValidationError('invalid_value', 'operation.payload.connectionId', `Canvas connection not found: ${connectionId}.`);
+        }
+        project.connections = project.connections.filter(connection => connection.id !== connectionId);
+        project.revision += 1;
+        project.updatedAt = this.now();
+        return {
+            operationId: operation.operationId,
+            status: 'succeeded',
+            projectRevision: project.revision,
+            affectedIds: [connectionId],
+            data: { connectionId },
         };
     }
 }

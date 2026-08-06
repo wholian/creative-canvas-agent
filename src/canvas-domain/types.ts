@@ -104,7 +104,12 @@ export interface CanvasActor {
     id?: string;
 }
 
-export type CanvasOperationType = 'node.add' | 'node.update';
+export type CanvasOperationType =
+    | 'node.add'
+    | 'node.update'
+    | 'node.delete'
+    | 'connection.add'
+    | 'connection.delete';
 
 export interface CanvasOperation<TPayload = unknown> {
     operationId: string;
@@ -133,6 +138,21 @@ export interface NodeUpdatePatch {
 export interface NodeUpdateOperationPayload {
     nodeId: string;
     patch: NodeUpdatePatch;
+}
+
+export interface NodeDeleteOperationPayload {
+    nodeId: string;
+}
+
+export interface ConnectionAddOperationPayload {
+    connectionId?: string;
+    from: CanvasConnectionEndpoint;
+    to: CanvasConnectionEndpoint;
+    kind: CanvasConnectionKind;
+}
+
+export interface ConnectionDeleteOperationPayload {
+    connectionId: string;
 }
 
 export interface StructuredCanvasError {
