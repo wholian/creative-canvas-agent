@@ -111,7 +111,7 @@ export const useConnectionDragging = () => {
      */
     const completeConnectionDrag = (
         onAddNext: (nodeId: string, direction: 'left' | 'right') => void,
-        onUpdateNodes: (updater: (prev: NodeData[]) => NodeData[]) => void,
+        onConnectNodes: (parentId: string, childId: string) => void,
         nodes: NodeData[],
         onConnectionMade?: (parentId: string, childId: string) => void
     ): boolean => {
@@ -203,19 +203,12 @@ export const useConnectionDragging = () => {
                     return true;
                 }
 
-                // Add source as a parent to target node
-                onUpdateNodes(prev => prev.map(n => {
-                    if (n.id === hoveredNodeId) {
-                        const existingParents = n.parentIds || [];
-                        // Prevent duplicate connections
-                        if (!existingParents.includes(connectionStart.nodeId)) {
-                            return { ...n, parentIds: [...existingParents, connectionStart.nodeId] };
-                        }
-                    }
-                    return n;
-                }));
-                // Notify about new connection: source is parent, hoveredNode is child
-                onConnectionMade?.(connectionStart.nodeId, hoveredNodeId);
+                const targetNode = nodes.find(node => node.id === hoveredNodeId);
+                if (!targetNode?.parentIds?.includes(connectionStart.nodeId)) {
+                    onConnectNodes(connectionStart.nodeId, hoveredNodeId);
+                    // Notify about new connection: source is parent, hoveredNode is child
+                    onConnectionMade?.(connectionStart.nodeId, hoveredNodeId);
+                }
             } else {
                 // Connecting to RIGHT connector = target provides output (target is parent)
                 // hoveredNode is parent, source is child
@@ -229,19 +222,12 @@ export const useConnectionDragging = () => {
                     return true;
                 }
 
-                // Add target as a parent to source node
-                onUpdateNodes(prev => prev.map(n => {
-                    if (n.id === connectionStart.nodeId) {
-                        const existingParents = n.parentIds || [];
-                        // Prevent duplicate connections
-                        if (!existingParents.includes(hoveredNodeId)) {
-                            return { ...n, parentIds: [...existingParents, hoveredNodeId] };
-                        }
-                    }
-                    return n;
-                }));
-                // Notify about new connection: hoveredNode is parent, source is child
-                onConnectionMade?.(hoveredNodeId, connectionStart.nodeId);
+                const sourceNode = nodes.find(node => node.id === connectionStart.nodeId);
+                if (!sourceNode?.parentIds?.includes(hoveredNodeId)) {
+                    onConnectNodes(hoveredNodeId, connectionStart.nodeId);
+                    // Notify about new connection: hoveredNode is parent, source is child
+                    onConnectionMade?.(hoveredNodeId, connectionStart.nodeId);
+                }
             }
         }
 
@@ -265,16 +251,10 @@ export const useConnectionDragging = () => {
     /**
      * Deletes the currently selected connection
      */
-    const deleteSelectedConnection = (onUpdateNodes: (updater: (prev: NodeData[]) => NodeData[]) => void) => {
+    const deleteSelectedConnection = (onDeleteConnection: (parentId: string, childId: string) => void) => {
         if (!selectedConnection) return false;
 
-        onUpdateNodes(prev => prev.map(n => {
-            if (n.id === selectedConnection.childId) {
-                const existingParents = n.parentIds || [];
-                return { ...n, parentIds: existingParents.filter(pid => pid !== selectedConnection.parentId) };
-            }
-            return n;
-        }));
+        onDeleteConnection(selectedConnection.parentId, selectedConnection.childId);
         setSelectedConnection(null);
         return true;
     };

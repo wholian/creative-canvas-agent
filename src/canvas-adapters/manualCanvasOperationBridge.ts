@@ -2,6 +2,7 @@ import type { NodeData, NodeType, Viewport } from '../types.ts';
 import {
     CanvasOperationRunner,
     InMemoryCanvasProjectStore,
+    type CanvasProject,
     type CanvasNode,
     type CanvasOperation,
     type CanvasOperationResult,
@@ -50,6 +51,39 @@ export interface ManualNodeUpdateResult {
     node?: NodeData;
     projectRevision: number;
     error?: ManualCanvasOperationFailure;
+}
+
+export interface ManualCanvasMutationResult {
+    status: 'succeeded' | 'failed';
+    nodes?: NodeData[];
+    node?: NodeData;
+    projectRevision: number;
+    error?: ManualCanvasOperationFailure;
+}
+
+interface ManualCanvasMutationInput {
+    nodes: NodeData[];
+    viewport: Viewport;
+    title: string;
+    operationId?: string;
+    now?: string;
+}
+
+export interface ManualNodeDeleteInput extends ManualCanvasMutationInput {
+    nodeIds: string[];
+}
+
+export interface ManualConnectionInput extends ManualCanvasMutationInput {
+    parentId: string;
+    childId: string;
+}
+
+export interface ManualConnectedNodeAddInput extends ManualCanvasMutationInput {
+    nodeType: ManualCanvasNodeType;
+    position: { x: number; y: number };
+    parentId: string;
+    childId: string;
+    nodeId?: string;
 }
 
 function domainType(nodeType: ManualCanvasNodeType): 'text' | 'image' | 'video' {
@@ -121,6 +155,48 @@ export function mergeDomainNodeIntoLegacy(node: CanvasNode, previous?: NodeData)
         if (typeof payload.generateAudio === 'boolean') base.generateAudio = payload.generateAudio;
     }
     return base;
+}
+
+function projectIntoLegacy(project: CanvasProject, previousNodes: NodeData[]): NodeData[] {
+    const previousById = new Map(previousNodes.map(node => [node.id, node]));
+    const parentIdsByChild = new Map<string, string[]>();
+    for (const connection of project.connections) {
+        if (connection.kind !== 'input') continue;
+        const parentIds = parentIdsByChild.get(connection.to.nodeId) || [];
+        parentIds.push(connection.from.nodeId);
+        parentIdsByChild.set(connection.to.nodeId, parentIds);
+    }
+
+    return project.nodes.map(domainNode => {
+        const previous = previousById.get(domainNode.id);
+        let legacyNode: NodeData;
+        if (domainNode.type === 'text' || domainNode.type === 'image' || domainNode.type === 'video') {
+            legacyNode = mergeDomainNodeIntoLegacy(domainNode, previous);
+        } else if (previous) {
+            legacyNode = {
+                ...previous,
+                title: domainNode.title,
+                x: domainNode.position.x,
+                y: domainNode.position.y,
+            };
+        } else {
+            const payload = domainNode.payload as { legacyType?: string };
+            legacyNode = {
+                id: domainNode.id,
+                type: (payload.legacyType || domainNode.type) as NodeData['type'],
+                title: domainNode.title,
+                x: domainNode.position.x,
+                y: domainNode.position.y,
+                prompt: '',
+                status: 'idle' as NodeData['status'],
+                model: 'Banana Pro',
+                aspectRatio: 'Auto',
+                resolution: 'Auto',
+            };
+        }
+        legacyNode.parentIds = parentIdsByChild.get(domainNode.id) || [];
+        return legacyNode;
+    });
 }
 
 function operationFailure(result: CanvasOperationResult): ManualCanvasOperationFailure {
@@ -258,5 +334,172 @@ export async function applyManualNodeUpdate({
         status: 'succeeded',
         projectRevision: result.projectRevision,
         node: mergeDomainNodeIntoLegacy(domainNode, previous),
+    };
+}
+
+function mutationFailure(results: CanvasOperationResult[]): CanvasOperationResult | undefined {
+    return results.find(result => result.status !== 'succeeded' && result.error?.code !== 'transaction_rolled_back')
+        || results.find(result => result.status !== 'succeeded');
+}
+
+export async function applyManualNodeDelete({
+    nodes,
+    viewport,
+    title,
+    nodeIds,
+    operationId = crypto.randomUUID(),
+    now = new Date().toISOString(),
+}: ManualNodeDeleteInput): Promise<ManualCanvasMutationResult> {
+    const uniqueNodeIds = [...new Set(nodeIds)];
+    if (uniqueNodeIds.length === 0) {
+        return { status: 'succeeded', nodes: structuredClone(nodes), projectRevision: 0 };
+    }
+    const { projectId, runner } = createRunner(nodes, viewport, title, now);
+    const operations: CanvasOperation[] = uniqueNodeIds.map((nodeId, index) => ({
+        operationId: `${operationId}:node-delete:${index}`,
+        projectId,
+        actor: { type: 'user', id: 'canvas-ui' },
+        baseRevision: index,
+        type: 'node.delete',
+        payload: { nodeId },
+        createdAt: now,
+    }));
+    const results = await runner.executeBatch(operations);
+    const failed = mutationFailure(results);
+    if (failed) {
+        return { status: 'failed', projectRevision: failed.projectRevision, error: operationFailure(failed) };
+    }
+    const project = await runner.getSnapshot(projectId);
+    return {
+        status: 'succeeded',
+        nodes: projectIntoLegacy(project, nodes),
+        projectRevision: project.revision,
+    };
+}
+
+export async function applyManualConnectionAdd({
+    nodes,
+    viewport,
+    title,
+    parentId,
+    childId,
+    operationId = crypto.randomUUID(),
+    now = new Date().toISOString(),
+}: ManualConnectionInput): Promise<ManualCanvasMutationResult> {
+    const { projectId, runner } = createRunner(nodes, viewport, title, now);
+    const result = await runner.execute({
+        operationId,
+        projectId,
+        actor: { type: 'user', id: 'canvas-ui' },
+        baseRevision: 0,
+        type: 'connection.add',
+        payload: {
+            connectionId: `connection-${crypto.randomUUID()}`,
+            from: { nodeId: parentId },
+            to: { nodeId: childId },
+            kind: 'input',
+        },
+        createdAt: now,
+    });
+    if (result.status !== 'succeeded') {
+        return { status: 'failed', projectRevision: result.projectRevision, error: operationFailure(result) };
+    }
+    const project = await runner.getSnapshot(projectId);
+    return { status: 'succeeded', nodes: projectIntoLegacy(project, nodes), projectRevision: project.revision };
+}
+
+export async function applyManualConnectionDelete({
+    nodes,
+    viewport,
+    title,
+    parentId,
+    childId,
+    operationId = crypto.randomUUID(),
+    now = new Date().toISOString(),
+}: ManualConnectionInput): Promise<ManualCanvasMutationResult> {
+    const { projectId, runner } = createRunner(nodes, viewport, title, now);
+    const project = await runner.getSnapshot(projectId);
+    const connection = project.connections.find(candidate =>
+        candidate.kind === 'input'
+        && candidate.from.nodeId === parentId
+        && candidate.to.nodeId === childId,
+    );
+    if (!connection) {
+        return {
+            status: 'failed',
+            projectRevision: project.revision,
+            error: { code: 'unknown_connection', message: `Canvas connection not found: ${parentId} -> ${childId}.` },
+        };
+    }
+    const result = await runner.execute({
+        operationId,
+        projectId,
+        actor: { type: 'user', id: 'canvas-ui' },
+        baseRevision: 0,
+        type: 'connection.delete',
+        payload: { connectionId: connection.id },
+        createdAt: now,
+    });
+    if (result.status !== 'succeeded') {
+        return { status: 'failed', projectRevision: result.projectRevision, error: operationFailure(result) };
+    }
+    const updatedProject = await runner.getSnapshot(projectId);
+    return {
+        status: 'succeeded',
+        nodes: projectIntoLegacy(updatedProject, nodes),
+        projectRevision: updatedProject.revision,
+    };
+}
+
+export async function applyManualConnectedNodeAdd({
+    nodes,
+    viewport,
+    title,
+    nodeType,
+    position,
+    parentId,
+    childId,
+    nodeId = crypto.randomUUID(),
+    operationId = crypto.randomUUID(),
+    now = new Date().toISOString(),
+}: ManualConnectedNodeAddInput): Promise<ManualCanvasMutationResult> {
+    const { projectId, runner } = createRunner(nodes, viewport, title, now);
+    const operations: CanvasOperation[] = [
+        {
+            operationId: `${operationId}:node-add`,
+            projectId,
+            actor: { type: 'user', id: 'canvas-ui' },
+            baseRevision: 0,
+            type: 'node.add',
+            payload: { nodeId, type: domainType(nodeType), position, payload: defaultDomainPayload(nodeType) },
+            createdAt: now,
+        },
+        {
+            operationId: `${operationId}:connection-add`,
+            projectId,
+            actor: { type: 'user', id: 'canvas-ui' },
+            baseRevision: 1,
+            type: 'connection.add',
+            payload: {
+                connectionId: `connection-${crypto.randomUUID()}`,
+                from: { nodeId: parentId },
+                to: { nodeId: childId },
+                kind: 'input',
+            },
+            createdAt: now,
+        },
+    ];
+    const results = await runner.executeBatch(operations);
+    const failed = mutationFailure(results);
+    if (failed) {
+        return { status: 'failed', projectRevision: failed.projectRevision, error: operationFailure(failed) };
+    }
+    const project = await runner.getSnapshot(projectId);
+    const projected = projectIntoLegacy(project, nodes);
+    return {
+        status: 'succeeded',
+        nodes: projected,
+        node: projected.find(node => node.id === nodeId),
+        projectRevision: project.revision,
     };
 }

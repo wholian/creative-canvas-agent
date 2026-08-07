@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyAgentDraftActions } from '../../src/canvas-adapters/agentCanvasOperationBridge.ts';
 import {
+    applyManualConnectedNodeAdd,
+    applyManualConnectionAdd,
+    applyManualConnectionDelete,
     applyManualNodeAdd,
+    applyManualNodeDelete,
     applyManualNodeUpdate,
 } from '../../src/canvas-adapters/manualCanvasOperationBridge.ts';
 import type { NodeData, NodeType } from '../../src/types.ts';
@@ -152,4 +156,113 @@ test('manual and Agent image paths produce equivalent domain-managed legacy fiel
         resolution: node.resolution,
     });
     assert.deepEqual(managed(manualUpdated.node), managed(agent.addedNodes[0]));
+});
+
+test('manual connection add and delete project explicit connections back to legacy parentIds', async () => {
+    const parent = imageNode({ id: 'parent-image' });
+    const child = imageNode({ id: 'child-image', parentIds: [] });
+    const added = await applyManualConnectionAdd({
+        nodes: [parent, child],
+        viewport: VIEWPORT,
+        title: 'Connections',
+        parentId: parent.id,
+        childId: child.id,
+        operationId: 'manual-connection-add',
+        now: NOW,
+    });
+
+    assert.equal(added.status, 'succeeded');
+    assert.equal(added.projectRevision, 1);
+    assert.deepEqual(added.nodes?.find(node => node.id === child.id)?.parentIds, [parent.id]);
+
+    const deleted = await applyManualConnectionDelete({
+        nodes: added.nodes || [],
+        viewport: VIEWPORT,
+        title: 'Connections',
+        parentId: parent.id,
+        childId: child.id,
+        operationId: 'manual-connection-delete',
+        now: NOW,
+    });
+    assert.equal(deleted.status, 'succeeded');
+    assert.deepEqual(deleted.nodes?.find(node => node.id === child.id)?.parentIds, []);
+});
+
+test('manual node delete cascades its explicit connections in one projected result', async () => {
+    const parent = imageNode({ id: 'parent-image' });
+    const child = imageNode({ id: 'child-image', parentIds: [parent.id] });
+    const result = await applyManualNodeDelete({
+        nodes: [parent, child],
+        viewport: VIEWPORT,
+        title: 'Delete cascade',
+        nodeIds: [parent.id],
+        operationId: 'manual-node-delete',
+        now: NOW,
+    });
+
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.projectRevision, 1);
+    assert.deepEqual(result.nodes?.map(node => node.id), [child.id]);
+    assert.deepEqual(result.nodes?.[0].parentIds, []);
+});
+
+test('manual multi-node delete commits as one atomic projected update', async () => {
+    const first = imageNode({ id: 'first-image' });
+    const second = imageNode({ id: 'second-image', parentIds: [first.id] });
+    const result = await applyManualNodeDelete({
+        nodes: [first, second],
+        viewport: VIEWPORT,
+        title: 'Multi delete',
+        nodeIds: [first.id, second.id],
+        operationId: 'manual-multi-delete',
+        now: NOW,
+    });
+
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.projectRevision, 2);
+    assert.deepEqual(result.nodes, []);
+});
+
+test('connector add creates the node and connection as one atomic batch', async () => {
+    const source = imageNode({ id: 'source-image' });
+    const result = await applyManualConnectedNodeAdd({
+        nodes: [source],
+        viewport: VIEWPORT,
+        title: 'Connector add',
+        nodeType: IMAGE_NODE,
+        nodeId: 'connected-image',
+        position: { x: 540, y: 200 },
+        parentId: source.id,
+        childId: 'connected-image',
+        operationId: 'manual-connected-add',
+        now: NOW,
+    });
+
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.projectRevision, 2);
+    assert.equal(result.node?.id, 'connected-image');
+    assert.deepEqual(result.node?.parentIds, [source.id]);
+    assert.equal(result.nodes?.length, 2);
+});
+
+test('connector add rolls back the node when its connection endpoint is invalid', async () => {
+    const source = imageNode({ id: 'source-image' });
+    const result = await applyManualConnectedNodeAdd({
+        nodes: [source],
+        viewport: VIEWPORT,
+        title: 'Connector rollback',
+        nodeType: IMAGE_NODE,
+        nodeId: 'orphan-image',
+        position: { x: 540, y: 200 },
+        parentId: 'missing-parent',
+        childId: 'orphan-image',
+        operationId: 'manual-connected-rollback',
+        now: NOW,
+    });
+
+    assert.equal(result.status, 'failed');
+    assert.equal(result.projectRevision, 0);
+    assert.equal(result.nodes, undefined);
+    assert.match(result.error?.message || '', /endpoints/);
+    assert.deepEqual(source.parentIds, []);
 });

@@ -16,7 +16,8 @@
 - M1-B / B2.1 手动新增 Text / Image / Video 草稿与核心参数更新接入 Operation Runner：完成；
 - M1-B / B2.2 活跃工作流记忆、真实自动保存状态与刷新恢复：完成；
 - M1-B / B2.3 原子 History、Mac 快捷键与 Undo / Redo 浏览器回归：完成；
-- 当前下一步：进入 B3 删除与连线。
+- M1-B / B3 手动删除、显式连线与 Connector 原子新增：完成；
+- 当前下一步：进入 C1 Model Registry，不接真实生成模型。
 
 ## 1. 推进原则
 
@@ -259,6 +260,8 @@ M1-A 出口门槛：全部核心 Ops 能在没有浏览器的 Node.js 环境运�
 
 ### Slice B3：删除与连线
 
+状态：已完成核心手动画布路径（2026-08-07）。
+
 工作：
 
 - 删除和连接改走 Operation Runner；
@@ -271,6 +274,15 @@ M1-A 出口门槛：全部核心 Ops 能在没有浏览器的 Node.js 环境运�
 - 删除连接；
 - 删除节点级联；
 - 多节点选择不受影响。
+
+实测结果：
+
+- Connector 新增节点通过原子 `node.add + connection.add` 执行，连接失败时节点回滚；
+- 拖拽连线和删除连线分别走 `connection.add`、`connection.delete`；
+- 单节点和多节点删除走 `node.delete` 批处理，并级联清理连接；
+- `parentIds` 仅作为旧 React 画布的兼容投影，显式 Connection 是桥接层内的领域真相；
+- 浏览器验证了 Connector 新增、连线删除、节点级联删除、Undo / Redo 和刷新恢复；
+- 专项生成流程创建的 loading/result 节点仍是旧路径，留到 Artifact / Job 状态接入时迁移，不纳入本切片。
 
 M1-B 出口门槛：人工画布操作全部通过统一 Ops，UI 没有明显回归。
 
@@ -471,11 +483,11 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-进入 Slice B3：
+进入 Slice C1：
 
-- 将手动删除节点与连接逐项切换到 Operation Runner；
-- 将 Connector 新增节点表达为原子 node.add + connection.add；
-- 节点删除必须级联连接，并保持 Undo / Redo；
-- 旧 `parentIds` 继续仅作为兼容读写层，领域真相使用显式 Connection。
+- 只定义统一 `ModelRegistry`、Provider 协议和能力/参数 Schema；
+- 先用 Mock Provider 验证模型选择、参数校验和路由，不接真实付费生成；
+- 前端模型选项必须引用稳定 `modelId`，禁止各场景自行拼接 Base URL；
+- 不在 C1 引入 Pi Agent loop；Agent Runtime 仍按计划后置。
 
-当前已接入的手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关。生成状态、Artifact、编辑器状态等仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。
+当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。

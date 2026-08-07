@@ -43,7 +43,7 @@ interface UsePointerHandlersOptions {
     updateConnectionDrag: (e: React.PointerEvent, nodes: NodeData[], viewport: Viewport) => boolean;
     completeConnectionDrag: (
         handleAddNext: (nodeId: string, direction: 'left' | 'right') => void,
-        setNodes: React.Dispatch<React.SetStateAction<NodeData[]>>,
+        connectNodes: (parentId: string, childId: string) => void,
         nodes: NodeData[],
         onConnectionMade?: (parentId: string, childId: string) => void
     ) => boolean;
@@ -57,6 +57,7 @@ interface UsePointerHandlersOptions {
     releasePointerCapture: (e: React.PointerEvent) => void;
     handleAddNext: (nodeId: string, direction: 'left' | 'right') => void;
     updateNode: (id: string, updates: Partial<NodeData>) => void;
+    connectNodes: (parentId: string, childId: string) => void;
 }
 
 export const usePointerHandlers = ({
@@ -85,7 +86,8 @@ export const usePointerHandlers = ({
     closeAssetLibrary,
     releasePointerCapture,
     handleAddNext,
-    updateNode
+    updateNode,
+    connectNodes
 }: UsePointerHandlersOptions) => {
 
     // ============================================================================
@@ -173,7 +175,7 @@ export const usePointerHandlers = ({
         }
 
         // 2. Handle Connection Drop
-        if (completeConnectionDrag(handleAddNext, setNodes, nodes, handleConnectionMade)) {
+        if (completeConnectionDrag(handleAddNext, connectNodes, nodes, handleConnectionMade)) {
             releasePointerCapture(e);
             return;
         }
@@ -195,7 +197,7 @@ export const usePointerHandlers = ({
         releasePointerCapture,
         completeConnectionDrag,
         handleAddNext,
-        setNodes,
+        connectNodes,
         handleConnectionMade,
         endPanning,
         endNodeDrag

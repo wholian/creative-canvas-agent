@@ -155,6 +155,8 @@ export default function App() {
     updateNode,
     deleteNode,
     deleteNodes,
+    connectNodes,
+    disconnectNodes,
     clearSelection,
     handleSelectTypeFromMenu,
     canvasOperationError,
@@ -219,7 +221,7 @@ export default function App() {
     updateConnectionDrag,
     completeConnectionDrag,
     handleEdgeClick,
-    deleteSelectedConnection
+    deleteSelectedConnection: deleteSelectedConnectionFromState
   } = useConnectionDragging();
 
   const {
@@ -449,7 +451,7 @@ export default function App() {
     setSelectedNodeIds,
     setContextMenu,
     deleteNodes,
-    deleteSelectedConnection,
+    deleteSelectedConnection: () => deleteSelectedConnectionFromState(disconnectNodes),
     clearSelection,
     clearSelectionBox,
     undo,
@@ -961,21 +963,6 @@ export default function App() {
     }
   };
 
-  /**
-   * Handle when a connection is made between nodes
-   * Syncs prompt if parent is a Text node
-   */
-  const handleConnectionMade = React.useCallback((parentId: string, childId: string) => {
-    // Find the parent node
-    const parentNode = nodes.find(n => n.id === parentId);
-    if (!parentNode) return;
-
-    // If parent is a Text node, sync its prompt to the child
-    if (parentNode.type === NodeType.TEXT && parentNode.prompt) {
-      updateNode(childId, { prompt: parentNode.prompt });
-    }
-  }, [nodes, updateNode]);
-
   const handleGlobalPointerUp = (e: React.PointerEvent) => {
     // 1. Handle Selection Box End
     if (isSelecting) {
@@ -986,7 +973,7 @@ export default function App() {
     }
 
     // 2. Handle Connection Drop
-    if (completeConnectionDrag(handleAddNext, setNodes, nodes, handleConnectionMade)) {
+    if (completeConnectionDrag(handleAddNext, connectNodes, nodes)) {
       releasePointerCapture(e);
       return;
     }

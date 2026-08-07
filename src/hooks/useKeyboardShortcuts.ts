@@ -15,7 +15,7 @@ interface UseKeyboardShortcutsOptions {
     setSelectedNodeIds: React.Dispatch<React.SetStateAction<string[]>>;
     setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState>>;
     deleteNodes: (ids: string[]) => void;
-    deleteSelectedConnection: (setNodes: React.Dispatch<React.SetStateAction<NodeData[]>>) => void;
+    deleteSelectedConnection: () => void;
     clearSelection: () => void;
     clearSelectionBox: () => void;
     undo: () => void;
@@ -130,7 +130,7 @@ export const useKeyboardShortcuts = ({
                     deleteNodes(selectedNodeIds);
                     setContextMenu(prev => ({ ...prev, isOpen: false }));
                 } else if (selectedConnection) {
-                    deleteSelectedConnection(setNodes);
+                    deleteSelectedConnection();
                 }
             } else if (e.key === 'Escape') {
                 clearSelection();

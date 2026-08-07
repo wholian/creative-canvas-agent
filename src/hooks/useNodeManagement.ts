@@ -8,7 +8,11 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { NodeData, NodeType, NodeStatus, Viewport } from '../types';
 import {
+    applyManualConnectedNodeAdd,
+    applyManualConnectionAdd,
+    applyManualConnectionDelete,
     applyManualNodeAdd,
+    applyManualNodeDelete,
     applyManualNodeUpdate,
     type ManualCanvasOperationFailure,
     type ManualCanvasNodeType,
@@ -57,13 +61,12 @@ export const useNodeManagement = ({ title, viewport: currentViewport }: UseNodeM
     viewportRef.current = currentViewport;
 
     const setNodes = useCallback<React.Dispatch<React.SetStateAction<NodeData[]>>>((action) => {
-        setNodesState(previous => {
-            const next = typeof action === 'function'
-                ? (action as (value: NodeData[]) => NodeData[])(previous)
-                : action;
-            nodesRef.current = next;
-            return next;
-        });
+        const previous = nodesRef.current;
+        const next = typeof action === 'function'
+            ? (action as (value: NodeData[]) => NodeData[])(previous)
+            : action;
+        nodesRef.current = next;
+        setNodesState(next);
     }, []);
 
     const enqueueOperation = useCallback((operation: () => Promise<void>) => {
@@ -216,17 +219,117 @@ export const useNodeManagement = ({ title, viewport: currentViewport }: UseNodeM
      * @param id - Node ID to delete
      */
     const deleteNode = (id: string) => {
-        setNodes(prev => prev.filter(n => n.id !== id));
-        setSelectedNodeIds(prev => prev.filter(nodeId => nodeId !== id));
+        deleteNodes([id]);
     };
 
     /**
      * Deletes multiple nodes by IDs
      * @param ids - Array of node IDs to delete
      */
-    const deleteNodes = (ids: string[]) => {
+    function deleteNodes(ids: string[]) {
+        if (import.meta.env.VITE_CANVAS_OPERATION_BRIDGE !== 'false') {
+            enqueueOperation(async () => {
+                const result = await applyManualNodeDelete({
+                    nodes: nodesRef.current,
+                    viewport: viewportRef.current,
+                    title: titleRef.current,
+                    nodeIds: ids,
+                });
+                if (result.status !== 'succeeded' || !result.nodes) {
+                    setCanvasOperationError(result.error || {
+                        code: 'operation_failed',
+                        message: 'The canvas operation did not delete the selected nodes.',
+                    });
+                    return;
+                }
+                setCanvasOperationError(null);
+                setNodes(result.nodes);
+                setSelectedNodeIds([]);
+            });
+            return;
+        }
         setNodes(prev => prev.filter(n => !ids.includes(n.id)));
         setSelectedNodeIds([]);
+    }
+
+    const connectNodes = (parentId: string, childId: string) => {
+        if (import.meta.env.VITE_CANVAS_OPERATION_BRIDGE !== 'false') {
+            enqueueOperation(async () => {
+                const result = await applyManualConnectionAdd({
+                    nodes: nodesRef.current,
+                    viewport: viewportRef.current,
+                    title: titleRef.current,
+                    parentId,
+                    childId,
+                });
+                if (result.status !== 'succeeded' || !result.nodes) {
+                    setCanvasOperationError(result.error || {
+                        code: 'operation_failed',
+                        message: 'The canvas operation did not create the connection.',
+                    });
+                    return;
+                }
+                let committedNodes = result.nodes;
+                const parentNode = committedNodes.find(node => node.id === parentId);
+                if (parentNode?.type === NodeType.TEXT && parentNode.prompt) {
+                    const promptResult = await applyManualNodeUpdate({
+                        nodes: committedNodes,
+                        viewport: viewportRef.current,
+                        title: titleRef.current,
+                        nodeId: childId,
+                        updates: { prompt: parentNode.prompt },
+                    });
+                    if (promptResult.status !== 'succeeded' || !promptResult.node) {
+                        setCanvasOperationError(promptResult.error || {
+                            code: 'operation_failed',
+                            message: 'The canvas operation could not synchronize the text prompt.',
+                        });
+                        return;
+                    }
+                    committedNodes = committedNodes.map(node => node.id === childId ? promptResult.node as NodeData : node);
+                }
+                setCanvasOperationError(null);
+                setNodes(committedNodes);
+            });
+            return;
+        }
+        setNodes(previous => {
+            const parentNode = previous.find(node => node.id === parentId);
+            return previous.map(node => node.id === childId
+                ? {
+                    ...node,
+                    parentIds: [...new Set([...(node.parentIds || []), parentId])],
+                    ...(parentNode?.type === NodeType.TEXT && parentNode.prompt ? { prompt: parentNode.prompt } : {}),
+                }
+                : node);
+        });
+    };
+
+    const disconnectNodes = (parentId: string, childId: string) => {
+        if (import.meta.env.VITE_CANVAS_OPERATION_BRIDGE !== 'false') {
+            enqueueOperation(async () => {
+                const result = await applyManualConnectionDelete({
+                    nodes: nodesRef.current,
+                    viewport: viewportRef.current,
+                    title: titleRef.current,
+                    parentId,
+                    childId,
+                });
+                if (result.status !== 'succeeded' || !result.nodes) {
+                    setCanvasOperationError(result.error || {
+                        code: 'operation_failed',
+                        message: 'The canvas operation did not delete the connection.',
+                    });
+                    return;
+                }
+                setCanvasOperationError(null);
+                setNodes(result.nodes);
+            });
+            return;
+        }
+        setNodes(previous => previous.map(node => node.id === childId
+            ? { ...node, parentIds: (node.parentIds || []).filter(id => id !== parentId) }
+            : node));
     };
 
     /**
@@ -256,12 +359,47 @@ export const useNodeManagement = ({ title, viewport: currentViewport }: UseNodeM
         }
 
         if (contextMenu.type === 'node-connector' && contextMenu.sourceNodeId) {
-            const sourceNode = nodes.find(n => n.id === contextMenu.sourceNodeId);
+            const sourceNode = nodesRef.current.find(n => n.id === contextMenu.sourceNodeId);
             if (sourceNode) {
                 const direction = contextMenu.connectorSide || 'right';
                 const newNodeId = crypto.randomUUID();
                 const GAP = 100;
                 const NODE_WIDTH = 340;
+
+                if (
+                    import.meta.env.VITE_CANVAS_OPERATION_BRIDGE !== 'false'
+                    && isDomainNodeType(type)
+                ) {
+                    const position = direction === 'right'
+                        ? { x: sourceNode.x + NODE_WIDTH + GAP, y: sourceNode.y }
+                        : { x: sourceNode.x - NODE_WIDTH - GAP, y: sourceNode.y };
+                    const parentId = direction === 'right' ? sourceNode.id : newNodeId;
+                    const childId = direction === 'right' ? newNodeId : sourceNode.id;
+                    enqueueOperation(async () => {
+                        const result = await applyManualConnectedNodeAdd({
+                            nodes: nodesRef.current,
+                            viewport: viewportRef.current,
+                            title: titleRef.current,
+                            nodeType: type,
+                            nodeId: newNodeId,
+                            position,
+                            parentId,
+                            childId,
+                        });
+                        if (result.status !== 'succeeded' || !result.nodes || !result.node) {
+                            setCanvasOperationError(result.error || {
+                                code: 'operation_failed',
+                                message: 'The canvas operation did not create the connected node.',
+                            });
+                            return;
+                        }
+                        setCanvasOperationError(null);
+                        setNodes(result.nodes);
+                        setSelectedNodeIds([result.node.id]);
+                    });
+                    onCloseMenu();
+                    return;
+                }
 
                 let newNode: NodeData;
 
@@ -323,6 +461,8 @@ export const useNodeManagement = ({ title, viewport: currentViewport }: UseNodeM
         updateNode,
         deleteNode,
         deleteNodes,
+        connectNodes,
+        disconnectNodes,
         clearSelection,
         handleSelectTypeFromMenu,
         canvasOperationError,
