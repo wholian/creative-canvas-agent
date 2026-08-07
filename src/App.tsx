@@ -156,11 +156,13 @@ export default function App() {
     deleteNode,
     deleteNodes,
     clearSelection,
-    handleSelectTypeFromMenu
-  } = useNodeManagement();
+    handleSelectTypeFromMenu,
+    canvasOperationError,
+    clearCanvasOperationError
+  } = useNodeManagement({ title: canvasTitle, viewport });
 
   // B1 read-only adapter: mirrors the legacy React canvas into the new domain
-  // graph for diagnostics. Existing UI writes still use the legacy state path.
+  // graph for diagnostics while B2 moves supported UI writes incrementally.
   useCanvasDomainMirror({ nodes, viewport, title: canvasTitle });
 
   const handleAgentCanvasActions = React.useCallback(async (actions: CanvasAction[]): Promise<CanvasActionExecution[]> => {
@@ -973,6 +975,29 @@ export default function App() {
 
   return (
     <div className={`w-screen h-screen ${canvasTheme === 'dark' ? 'bg-[#050505] text-white' : 'bg-neutral-50 text-neutral-900'} overflow-hidden select-none font-sans transition-colors duration-300`}>
+      {canvasOperationError && (
+        <div
+          data-testid="canvas-operation-error"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] max-w-xl rounded-lg border border-red-500/40 bg-red-950/95 px-4 py-3 text-sm text-red-100 shadow-xl"
+        >
+          <div className="flex items-start gap-3">
+            <div className="min-w-0">
+              <div className="font-medium">Canvas operation rejected</div>
+              <div className="mt-1 break-words text-xs text-red-200">
+                {canvasOperationError.code}: {canvasOperationError.message}
+                {canvasOperationError.path ? ` (${canvasOperationError.path})` : ''}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 text-xs text-red-200 hover:text-white"
+              onClick={clearCanvasOperationError}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       {!storyboardGenerator.isModalOpen && !isTikTokModalOpen && (
         <Toolbar
           onAddClick={handleToolbarAdd}

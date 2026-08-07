@@ -13,7 +13,8 @@
 - M1-A / A4 旧工作流迁移：完成；
 - M1-B / B1 只读 UI Adapter：完成；
 - M1-B / B2 Agent 新增草稿节点接入 Operation Runner：完成；
-- 当前下一步：将手动新增与节点更新逐项接入 Operation Runner。
+- M1-B / B2.1 手动新增 Text / Image / Video 草稿与核心参数更新接入 Operation Runner：完成；
+- 当前下一步：完成 B2 的 Undo / Redo、刷新恢复回归，再进入 B3 删除与连线。
 
 ## 1. 推进原则
 
@@ -468,4 +469,11 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-继续 Slice B2，将手动新增与节点更新逐项切换到 Operation Runner；Agent 草稿节点路径可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。
+先完成 Slice B2 的收口验证：
+
+- 验证经 Operation Runner 完成的手动新增与核心参数更新可以 Undo / Redo；
+- 验证自动保存后刷新可恢复相同节点字段；
+- 为 UI Adapter 增加可自动运行的浏览器回归入口；
+- 保持 Connector 新增、删除和连线继续走旧路径，留到 B3 单独迁移。
+
+当前已接入的手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关。生成状态、Artifact、编辑器状态等仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。

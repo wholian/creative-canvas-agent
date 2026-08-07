@@ -39,7 +39,9 @@ function legacyPrompt(
     kind: 'image' | 'video',
     warnings: LegacyMigrationWarning[],
 ): string {
-    if (typeof node.prompt === 'string' && node.prompt.trim()) return node.prompt;
+    // An empty string is a valid editable draft. Only synthesize a placeholder
+    // when the legacy field is actually absent or not a string.
+    if (typeof node.prompt === 'string') return node.prompt;
     warnings.push({
         code: 'missing_legacy_prompt',
         path: `nodes[${index}].prompt`,

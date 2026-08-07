@@ -82,7 +82,7 @@ const imageNodeDefinition: NodeDefinition<ImageNodePayload> = {
     validatePayload(input): ImageNodePayload {
         assertRecord(input, 'payload');
         return {
-            prompt: readRequiredString(input, 'prompt', 'payload'),
+            prompt: readRequiredString(input, 'prompt', 'payload', { allowEmpty: true }),
             modelId: readOptionalString(input, 'modelId', 'payload'),
             aspectRatio: readOptionalEnum(input, 'aspectRatio', IMAGE_ASPECT_RATIOS, 'payload'),
             quality: readOptionalEnum(input, 'quality', IMAGE_QUALITIES, 'payload'),
@@ -102,7 +102,7 @@ const videoNodeDefinition: NodeDefinition<VideoNodePayload> = {
     validatePayload(input): VideoNodePayload {
         assertRecord(input, 'payload');
         return {
-            prompt: readRequiredString(input, 'prompt', 'payload'),
+            prompt: readRequiredString(input, 'prompt', 'payload', { allowEmpty: true }),
             modelId: readOptionalString(input, 'modelId', 'payload'),
             aspectRatio: readOptionalEnum(input, 'aspectRatio', VIDEO_ASPECT_RATIOS, 'payload'),
             resolution: readOptionalEnum(input, 'resolution', VIDEO_RESOLUTIONS, 'payload'),

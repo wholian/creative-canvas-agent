@@ -5,16 +5,70 @@
  * Handles node creation, updates, selection, and deletion.
  */
 
-import { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { NodeData, NodeType, NodeStatus, Viewport } from '../types';
+import {
+    applyManualNodeAdd,
+    applyManualNodeUpdate,
+    type ManualCanvasOperationFailure,
+    type ManualCanvasNodeType,
+} from '../canvas-adapters/manualCanvasOperationBridge';
 
-export const useNodeManagement = () => {
+interface UseNodeManagementOptions {
+    title: string;
+    viewport: Viewport;
+}
+
+const DOMAIN_MANAGED_UPDATE_KEYS = new Set<keyof NodeData>([
+    'title',
+    'prompt',
+    'x',
+    'y',
+    'imageModel',
+    'videoModel',
+    'aspectRatio',
+    'resolution',
+    'videoDuration',
+    'generateAudio',
+]);
+
+function isDomainNodeType(type: NodeType): type is ManualCanvasNodeType {
+    return type === NodeType.TEXT || type === NodeType.IMAGE || type === NodeType.VIDEO;
+}
+
+function isDomainManagedUpdate(updates: Partial<NodeData>): boolean {
+    const keys = Object.keys(updates) as Array<keyof NodeData>;
+    return keys.length > 0 && keys.every(key => DOMAIN_MANAGED_UPDATE_KEYS.has(key));
+}
+
+export const useNodeManagement = ({ title, viewport: currentViewport }: UseNodeManagementOptions) => {
     // ============================================================================
     // STATE
     // ============================================================================
 
-    const [nodes, setNodes] = useState<NodeData[]>([]);
+    const [nodes, setNodesState] = useState<NodeData[]>([]);
+    const nodesRef = useRef<NodeData[]>([]);
     const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+    const [canvasOperationError, setCanvasOperationError] = useState<ManualCanvasOperationFailure | null>(null);
+    const operationQueueRef = useRef<Promise<void>>(Promise.resolve());
+    const titleRef = useRef(title);
+    const viewportRef = useRef(currentViewport);
+    titleRef.current = title;
+    viewportRef.current = currentViewport;
+
+    const setNodes = useCallback<React.Dispatch<React.SetStateAction<NodeData[]>>>((action) => {
+        setNodesState(previous => {
+            const next = typeof action === 'function'
+                ? (action as (value: NodeData[]) => NodeData[])(previous)
+                : action;
+            nodesRef.current = next;
+            return next;
+        });
+    }, []);
+
+    const enqueueOperation = useCallback((operation: () => Promise<void>) => {
+        operationQueueRef.current = operationQueueRef.current.then(operation, operation);
+    }, []);
 
     // ============================================================================
     // NODE OPERATIONS
@@ -38,8 +92,37 @@ export const useNodeManagement = () => {
         const canvasX = (x - viewport.x) / viewport.zoom;
         const canvasY = (y - viewport.y) / viewport.zoom;
 
+        const nodeId = crypto.randomUUID();
+        if (
+            import.meta.env.VITE_CANVAS_OPERATION_BRIDGE !== 'false'
+            && !parentId
+            && isDomainNodeType(type)
+        ) {
+            enqueueOperation(async () => {
+                const result = await applyManualNodeAdd({
+                    nodes: nodesRef.current,
+                    viewport,
+                    title: titleRef.current,
+                    nodeType: type,
+                    nodeId,
+                    position: { x: canvasX - 170, y: canvasY - 100 },
+                });
+                if (result.status !== 'succeeded' || !result.node) {
+                    setCanvasOperationError(result.error || {
+                        code: 'operation_failed',
+                        message: 'The canvas operation did not create a node.',
+                    });
+                    return;
+                }
+                setCanvasOperationError(null);
+                setNodes(previous => [...previous, result.node as NodeData]);
+                setSelectedNodeIds([result.node.id]);
+            });
+            return nodeId;
+        }
+
         const newNode: NodeData = {
-            id: crypto.randomUUID(),
+            id: nodeId,
             type,
             x: parentId ? canvasX : canvasX - 170,
             y: parentId ? canvasY : canvasY - 100,
@@ -98,6 +181,33 @@ export const useNodeManagement = () => {
      * @param updates - Partial node data to merge
      */
     const updateNode = (id: string, updates: Partial<NodeData>) => {
+        const current = nodesRef.current.find(node => node.id === id);
+        if (
+            import.meta.env.VITE_CANVAS_OPERATION_BRIDGE !== 'false'
+            && current
+            && isDomainNodeType(current.type)
+            && isDomainManagedUpdate(updates)
+        ) {
+            enqueueOperation(async () => {
+                const result = await applyManualNodeUpdate({
+                    nodes: nodesRef.current,
+                    viewport: viewportRef.current,
+                    title: titleRef.current,
+                    nodeId: id,
+                    updates,
+                });
+                if (result.status !== 'succeeded' || !result.node) {
+                    setCanvasOperationError(result.error || {
+                        code: 'operation_failed',
+                        message: 'The canvas operation did not update the node.',
+                    });
+                    return;
+                }
+                setCanvasOperationError(null);
+                setNodes(previous => previous.map(node => node.id === id ? result.node as NodeData : node));
+            });
+            return;
+        }
         setNodes(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
     };
 
@@ -214,6 +324,8 @@ export const useNodeManagement = () => {
         deleteNode,
         deleteNodes,
         clearSelection,
-        handleSelectTypeFromMenu
+        handleSelectTypeFromMenu,
+        canvasOperationError,
+        clearCanvasOperationError: () => setCanvasOperationError(null),
     };
 };

@@ -22,9 +22,14 @@ export function assertRecord(input: unknown, path: string): asserts input is Rec
     }
 }
 
-export function readRequiredString(input: Record<string, unknown>, key: string, path: string): string {
+export function readRequiredString(
+    input: Record<string, unknown>,
+    key: string,
+    path: string,
+    options: { allowEmpty?: boolean } = {},
+): string {
     const value = input[key];
-    if (typeof value !== 'string' || value.trim().length === 0) {
+    if (typeof value !== 'string' || (!options.allowEmpty && value.trim().length === 0)) {
         throw new CanvasValidationError('missing_field', `${path}.${key}`, `${path}.${key} must be a non-empty string.`);
     }
     return value;
