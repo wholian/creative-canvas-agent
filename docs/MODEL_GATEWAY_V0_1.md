@@ -120,4 +120,23 @@ C3.1 的 HTTP Transport 与 Provider Runtime、C3.2 的 Feature Flag 接入均�
 - 多模态 Chat 暂不硬塞进只支持文本的 v0.1 契约，会继续使用旧链路；
 - Topic Title 生成暂时仍走旧模型入口，后续随 Agent Runtime 一并收口。
 
-下一步是在用户明确授权具体 Provider、模型和预算后做一次低成本真实冒烟请求，确认第三方实际返回格式与 Fake Fetch 契约一致。图片、视频和 Pi Agent Loop 继续后置。
+Feature Flag 接入完成后，按独立授权执行了下述低成本真实冒烟请求。图片、视频和 Pi Agent Loop 在本次验收中继续后置。
+
+## 5. C3 真实冒烟验收
+
+2026-08-07 经用户明确授权，使用以下非敏感配置执行低成本验收：
+
+- Base URL：`https://slb-v1.api.fan/v1`；
+- 最终 Endpoint：`https://slb-v1.api.fan/v1/chat/completions`；
+- 远端模型：`gemini-2.5-flash`；
+- 未打印、复制或写入 Trace 的 API Key。
+
+结果：
+
+- 直接文本调用成功，Trace `trace-62a4f11c-d471-4894-a740-7e7896414d44` 状态为 `succeeded`，耗时 1620 ms，Usage 为输入 7、输出 16 tokens；为压低成本设置的 20-token 上限导致展示文本被截断，不影响协议验收；
+- 开启 `CREATIVE_MODEL_GATEWAY_ENABLED=true` 后，页面真实执行“添加图片草稿节点”；
+- 首轮模型返回 `add_canvas_node` Tool Call，浏览器从 1 个图片草稿增加到 2 个；
+- 新节点 Prompt 为 `C3网关验收-蓝色纸船`，随后真实 Tool Result 进入第二轮模型调用并得到完成确认；
+- 未点击 Generate，没有触发图片或视频生成任务。
+
+C3 的真实 Provider、Endpoint、请求体、响应解析、Tool Call 两轮闭环和画布结果均通过验收。下一工程切片可以进入 D1 Creative Agent Runtime 接口。

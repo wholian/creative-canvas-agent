@@ -21,7 +21,8 @@
 - M1-C / C2 脱敏 Trace、Tool Result 记录与错误分类：完成；
 - M1-C / C3.1 Provider Runtime 与 OpenAI-compatible HTTP Transport：完成；
 - M1-C / C3.2 Chat / Tool Calling Feature Flag 接入：完成；
-- 当前下一步：经单独授权执行 C3 真实冒烟测试，然后进入 D1；
+- M1-C / C3.3 低成本真实 Provider 与 Tool Call 两轮冒烟验收：完成；
+- 当前下一步：进入 D1 Creative Agent Runtime 接口；
 
 ## 1. 推进原则
 
@@ -345,7 +346,7 @@ M1-B 出口门槛：人工画布操作全部通过统一 Ops，UI 没有明显�
 
 ### Slice C3：一个 OpenAI-compatible Chat Adapter
 
-状态：C3.1、C3.2 已完成；真实 Provider 冒烟验收待单独授权。
+状态：C3.1、C3.2、真实 Provider 冒烟验收均已完成（2026-08-07）。
 
 工作：
 
@@ -371,7 +372,7 @@ C3.2 已验证：
 - 文本聊天进入 Gateway，多模态聊天在 v0.1 仍回退旧路径；
 - Feature Flag 默认关闭，不自动读取、迁移或调用用户已有 Key。
 
-待验收：获得单独授权后，运行一次低成本真实冒烟请求。
+真实验收：`gemini-2.5-flash` 经 `https://slb-v1.api.fan/v1/chat/completions` 完成文本请求；页面完成首轮 Tool Call、真实草稿节点创建、`nodeId` Tool Result 与第二轮确认，未触发媒体生成。
 
 验收：用一个低成本真实请求验证模型、endpoint、请求体和 Trace 一致。
 
@@ -529,12 +530,12 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-完成 Slice C3 的真实冒烟验收：
+进入 Slice D1：
 
-- 明确授权一个 OpenAI-compatible Provider、模型和单次预算；
-- 临时开启 `CREATIVE_MODEL_GATEWAY_ENABLED=true`；
-- 验证普通文本和一次 Tool Call 两轮闭环及对应 Trace；
-- 验收后再进入 D1 Creative Agent Runtime 接口；
-- 图片、视频继续后置。
+- 定义与具体 Agent 框架无关的 `CreativeAgentRuntime`；
+- 定义稳定的 Agent Event；
+- 实现不联网的 `FakeCreativeAgentRuntime`；
+- 测试事件顺序、Abort、Fake Tool Call 与 Fake Tool Result；
+- 暂不安装 Pi，图片、视频继续后置。
 
 当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。
