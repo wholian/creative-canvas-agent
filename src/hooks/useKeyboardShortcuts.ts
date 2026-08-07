@@ -96,29 +96,30 @@ export const useKeyboardShortcuts = ({
         const handleKeyDown = (e: KeyboardEvent) => {
             const activeTag = document.activeElement?.tagName.toLowerCase();
             if (activeTag === 'input' || activeTag === 'textarea') return;
+            const commandKey = e.ctrlKey || e.metaKey;
 
-            // Undo: Ctrl+Z (without Shift)
-            if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+            // Undo: Ctrl/Cmd+Z (without Shift)
+            if (commandKey && e.key.toLowerCase() === 'z' && !e.shiftKey) {
                 e.preventDefault();
                 undo();
                 return;
             }
 
-            // Redo: Ctrl+Y or Ctrl+Shift+Z
-            if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) {
+            // Redo: Ctrl+Y or Ctrl/Cmd+Shift+Z
+            if ((e.ctrlKey && e.key.toLowerCase() === 'y') || (commandKey && e.shiftKey && e.key.toLowerCase() === 'z')) {
                 e.preventDefault();
                 redo();
                 return;
             }
 
             // Copy: Ctrl+C
-            if (e.ctrlKey && e.key === 'c') {
+            if (commandKey && e.key.toLowerCase() === 'c') {
                 handleCopy();
                 return;
             }
 
             // Paste: Ctrl+V
-            if (e.ctrlKey && e.key === 'v') {
+            if (commandKey && e.key.toLowerCase() === 'v') {
                 handlePaste();
                 return;
             }

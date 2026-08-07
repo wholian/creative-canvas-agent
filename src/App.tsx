@@ -256,12 +256,27 @@ export default function App() {
   // History for undo/redo
   const {
     present: historyState,
-    undo,
-    redo,
+    undo: undoHistory,
+    redo: redoHistory,
     pushHistory,
+    reset: resetHistory,
     canUndo,
     canRedo
   } = useHistory({ nodes, groups }, 50);
+
+  const pendingHistoryNavigation = React.useRef(false);
+  const pendingHistoryReset = React.useRef(false);
+  const isApplyingHistory = React.useRef(false);
+  const undo = React.useCallback(() => {
+    if (!canUndo) return;
+    pendingHistoryNavigation.current = true;
+    undoHistory();
+  }, [canUndo, undoHistory]);
+  const redo = React.useCallback(() => {
+    if (!canRedo) return;
+    pendingHistoryNavigation.current = true;
+    redoHistory();
+  }, [canRedo, redoHistory]);
 
   // Workflow management
   const {
@@ -301,6 +316,7 @@ export default function App() {
 
   // Load workflow and update tracking.
   const handleLoadWithTracking = React.useCallback(async (id: string) => {
+    pendingHistoryReset.current = true;
     ignoreNextChange.current = true;
     const result = await handleLoadWorkflow(id);
     setIsDirty(false);
@@ -355,6 +371,7 @@ export default function App() {
 
   // Create new canvas
   const handleNewCanvas = () => {
+    pendingHistoryReset.current = true;
     ignoreNextChange.current = true;
     setNodes([]);
     setGroups([]); // Reset groups for new canvas
@@ -858,9 +875,13 @@ export default function App() {
   }, [nodes, cleanupInvalidGroups]);
 
   // Track state changes for undo/redo (only after drag ends, not during)
-  const isApplyingHistory = React.useRef(false);
-
   useEffect(() => {
+    if (pendingHistoryReset.current) {
+      pendingHistoryReset.current = false;
+      resetHistory({ nodes, groups });
+      return;
+    }
+
     // Don't push to history if we're currently applying history (undo/redo)
     if (isApplyingHistory.current) {
       isApplyingHistory.current = false;
@@ -874,22 +895,25 @@ export default function App() {
 
     // Push to history when nodes or groups change
     pushHistory({ nodes, groups });
-  }, [nodes, groups, isDragging]);
+  }, [nodes, groups, isDragging, pushHistory, resetHistory]);
 
   // Apply history state when undo/redo is triggered
   // IMPORTANT: Don't revert nodes if any node is in LOADING status (generation in progress)
   useEffect(() => {
+    if (!pendingHistoryNavigation.current) return;
+    pendingHistoryNavigation.current = false;
+
     // Skip if any node is currently generating - don't interrupt the loading state
     const hasLoadingNode = nodes.some(n => n.status === NodeStatus.LOADING);
     if (hasLoadingNode) {
       return;
     }
 
-    if (historyState.nodes !== nodes) {
-      isApplyingHistory.current = true;
-      setNodes(historyState.nodes);
-    }
-  }, [historyState]);
+    isApplyingHistory.current = true;
+    setNodes(historyState.nodes);
+    setGroups(historyState.groups);
+    setSelectedNodeIds([]);
+  }, [historyState, nodes, setGroups, setNodes, setSelectedNodeIds]);
 
   // Simple wrapper for updateNode (sync code removed - TEXT node prompts are combined at generation time)
   const updateNodeWithSync = React.useCallback((id: string, updates: Partial<NodeData>) => {

@@ -6,22 +6,26 @@
  */
 
 import { useState, useCallback } from 'react';
+import {
+    createHistoryState,
+    pushHistoryState,
+    redoHistoryState,
+    undoHistoryState,
+} from '../history/historyState';
 
 export const useHistory = <T>(initialState: T, maxHistorySize: number = 50) => {
     // ============================================================================
     // STATE
     // ============================================================================
 
-    const [past, setPast] = useState<T[]>([]);
-    const [present, setPresent] = useState<T>(initialState);
-    const [future, setFuture] = useState<T[]>([]);
+    const [history, setHistory] = useState(() => createHistoryState(initialState));
 
     // ============================================================================
     // COMPUTED VALUES
     // ============================================================================
 
-    const canUndo = past.length > 0;
-    const canRedo = future.length > 0;
+    const canUndo = history.past.length > 0;
+    const canRedo = history.future.length > 0;
 
     // ============================================================================
     // OPERATIONS
@@ -32,30 +36,16 @@ export const useHistory = <T>(initialState: T, maxHistorySize: number = 50) => {
      * Moves present to future, pops from past to present
      */
     const undo = useCallback(() => {
-        if (!canUndo) return;
-
-        const previous = past[past.length - 1];
-        const newPast = past.slice(0, past.length - 1);
-
-        setPast(newPast);
-        setPresent(previous);
-        setFuture([present, ...future]);
-    }, [canUndo, past, present, future]);
+        setHistory(previous => undoHistoryState(previous));
+    }, []);
 
     /**
      * Redo the last undone action
      * Moves present to past, pops from future to present
      */
     const redo = useCallback(() => {
-        if (!canRedo) return;
-
-        const next = future[0];
-        const newFuture = future.slice(1);
-
-        setPast([...past, present]);
-        setPresent(next);
-        setFuture(newFuture);
-    }, [canRedo, past, present, future]);
+        setHistory(previous => redoHistoryState(previous));
+    }, []);
 
     /**
      * Push a new state to history
@@ -63,18 +53,8 @@ export const useHistory = <T>(initialState: T, maxHistorySize: number = 50) => {
      * @param newState - New state to push
      */
     const pushHistory = useCallback((newState: T) => {
-        // Skip if state hasn't changed (deep comparison)
-        if (JSON.stringify(newState) === JSON.stringify(present)) {
-            return;
-        }
-
-        // Add current state to past (with size limit)
-        const newPast = [...past.slice(-maxHistorySize + 1), present];
-
-        setPast(newPast);
-        setPresent(newState);
-        setFuture([]); // Clear redo stack on new action
-    }, [past, present, maxHistorySize]);
+        setHistory(previous => pushHistoryState(previous, newState, maxHistorySize));
+    }, [maxHistorySize]);
 
     /**
      * Reset history to a new initial state
@@ -82,9 +62,7 @@ export const useHistory = <T>(initialState: T, maxHistorySize: number = 50) => {
      * @param newState - New initial state
      */
     const reset = useCallback((newState: T) => {
-        setPast([]);
-        setPresent(newState);
-        setFuture([]);
+        setHistory(createHistoryState(newState));
     }, []);
 
     // ============================================================================
@@ -92,7 +70,7 @@ export const useHistory = <T>(initialState: T, maxHistorySize: number = 50) => {
     // ============================================================================
 
     return {
-        present,
+        present: history.present,
         undo,
         redo,
         pushHistory,

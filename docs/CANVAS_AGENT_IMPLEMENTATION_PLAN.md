@@ -15,7 +15,8 @@
 - M1-B / B2 Agent 新增草稿节点接入 Operation Runner：完成；
 - M1-B / B2.1 手动新增 Text / Image / Video 草稿与核心参数更新接入 Operation Runner：完成；
 - M1-B / B2.2 活跃工作流记忆、真实自动保存状态与刷新恢复：完成；
-- 当前下一步：完成 B2 的 Undo / Redo 自动回归，再进入 B3 删除与连线。
+- M1-B / B2.3 原子 History、Mac 快捷键与 Undo / Redo 浏览器回归：完成；
+- 当前下一步：进入 B3 删除与连线。
 
 ## 1. 推进原则
 
@@ -470,11 +471,11 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-先完成 Slice B2 的收口验证：
+进入 Slice B3：
 
-- 验证经 Operation Runner 完成的手动新增与核心参数更新可以 Undo / Redo；
-- 自动保存后刷新恢复已通过浏览器端到端验证；
-- 为 UI Adapter 增加可自动运行的浏览器回归入口；
-- 保持 Connector 新增、删除和连线继续走旧路径，留到 B3 单独迁移。
+- 将手动删除节点与连接逐项切换到 Operation Runner；
+- 将 Connector 新增节点表达为原子 node.add + connection.add；
+- 节点删除必须级联连接，并保持 Undo / Redo；
+- 旧 `parentIds` 继续仅作为兼容读写层，领域真相使用显式 Connection。
 
 当前已接入的手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关。生成状态、Artifact、编辑器状态等仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。
