@@ -363,14 +363,17 @@ export async function sendMessage(sessionId, content, media, modelConfig) {
 
     let aiResponse;
     let actions = [];
+    let modelTraceIds = [];
     if (modelConfig.baseUrl) {
         const toolResult = await startCanvasToolAgent(session.messages, modelConfig);
+        modelTraceIds = toolResult.traceIds || [];
         if (toolResult.status === "awaiting_client") {
             const pendingActionId = crypto.randomUUID();
             pendingCanvasActions.set(pendingActionId, {
                 sessionId,
                 continuation: toolResult.continuation,
                 modelConfig,
+                traceIds: toolResult.traceIds || [],
                 createdAt: Date.now(),
             });
             saveSession(sessionId, session);
@@ -378,6 +381,7 @@ export async function sendMessage(sessionId, content, media, modelConfig) {
                 response: null,
                 actions: toolResult.actions,
                 pendingActionId,
+                traceIds: toolResult.traceIds || [],
                 topic: session.topic,
                 messageCount: session.messages.length,
             };
@@ -427,6 +431,7 @@ export async function sendMessage(sessionId, content, media, modelConfig) {
     return {
         response: aiResponse.content.toString(),
         actions,
+        traceIds: modelTraceIds,
         topic: topic,
         messageCount: session.messages.length,
     };
@@ -470,6 +475,7 @@ export async function completeCanvasAction(pendingActionId, executions) {
         saveSession(pending.sessionId, session);
         return {
             response: aiResponse.content.toString(),
+            traceIds: [...(pending.traceIds || []), ...(completed.traceIds || [])],
             topic,
             messageCount: session.messages.length,
         };

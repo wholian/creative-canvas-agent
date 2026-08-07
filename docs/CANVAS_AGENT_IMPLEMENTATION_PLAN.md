@@ -20,7 +20,8 @@
 - M1-C / C1 Model Registry、Mock Adapter 与 OpenAI-compatible 契约适配：完成；
 - M1-C / C2 脱敏 Trace、Tool Result 记录与错误分类：完成；
 - M1-C / C3.1 Provider Runtime 与 OpenAI-compatible HTTP Transport：完成；
-- 当前下一步：进入 C3.2 Chat 渐进迁移；真实调用单独授权。
+- M1-C / C3.2 Chat / Tool Calling Feature Flag 接入：完成；
+- 当前下一步：经单独授权执行 C3 真实冒烟测试，然后进入 D1；
 
 ## 1. 推进原则
 
@@ -344,7 +345,7 @@ M1-B 出口门槛：人工画布操作全部通过统一 Ops，UI 没有明显�
 
 ### Slice C3：一个 OpenAI-compatible Chat Adapter
 
-状态：C3.1 已完成；C3.2 待实施。
+状态：C3.1、C3.2 已完成；真实 Provider 冒烟验收待单独授权。
 
 工作：
 
@@ -361,12 +362,16 @@ C3.1 已验证：
 - 401/403、404、429、4xx 和 5xx 映射为统一错误，并标明是否可重试；
 - 配置摘要不暴露 API Key；当前未读取用户 Key，也未发送真实请求。
 
-C3.2 待实施：
+C3.2 已验证：
 
 - 通过 Feature Flag 将现有 Chat / Tool Calling 接入 Gateway；
 - 保留旧聊天链路作为回退；
-- 明确配置来源与密钥持久化边界；
-- 获得单独授权后，运行一次低成本真实冒烟请求。
+- 首轮 Tool Call 与带真实 `nodeId` 的第二轮 Tool Result 均走 Gateway；
+- 两轮 Trace ID 返回到现有 Chat API；
+- 文本聊天进入 Gateway，多模态聊天在 v0.1 仍回退旧路径；
+- Feature Flag 默认关闭，不自动读取、迁移或调用用户已有 Key。
+
+待验收：获得单独授权后，运行一次低成本真实冒烟请求。
 
 验收：用一个低成本真实请求验证模型、endpoint、请求体和 Trace 一致。
 
@@ -524,11 +529,12 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-进入 Slice C3.2：
+完成 Slice C3 的真实冒烟验收：
 
-- 将现有 Chat / Tool Calling 通过 Feature Flag 渐进切换到 Gateway；
-- 默认仍使用 Mock 或旧链路，先做不联网的集成测试；
-- 定义配置注入入口，但不自动读取或迁移用户已有 Key；
-- 真实低成本请求必须单独授权，图片、视频与 Pi Agent Loop 继续后置。
+- 明确授权一个 OpenAI-compatible Provider、模型和单次预算；
+- 临时开启 `CREATIVE_MODEL_GATEWAY_ENABLED=true`；
+- 验证普通文本和一次 Tool Call 两轮闭环及对应 Trace；
+- 验收后再进入 D1 Creative Agent Runtime 接口；
+- 图片、视频继续后置。
 
 当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。

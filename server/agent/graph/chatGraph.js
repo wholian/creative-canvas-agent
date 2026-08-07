@@ -43,6 +43,17 @@ function toOpenAIMessage(message) {
     };
 }
 
+function toGatewayMessage(message) {
+    if (typeof message.content !== 'string') {
+        throw new Error('Model Gateway v0.1 currently supports text-only Chat messages.');
+    }
+    const type = message._getType?.();
+    return {
+        role: type === 'system' ? 'system' : type === 'ai' ? 'assistant' : 'user',
+        content: message.content,
+    };
+}
+
 const IMAGE_MODEL_SETTINGS = {
     "gpt-image-1.5": {
         name: "GPT Image 1.5",
@@ -108,6 +119,31 @@ const CANVAS_TOOLS = [{
         },
     },
 }];
+
+const GATEWAY_CANVAS_TOOLS = CANVAS_TOOLS.map(tool => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    inputSchema: tool.function.parameters,
+}));
+
+function toOpenAIToolCalls(toolCalls = []) {
+    return toolCalls.map(toolCall => ({
+        id: toolCall.id,
+        type: 'function',
+        function: {
+            name: toolCall.name,
+            arguments: JSON.stringify(toolCall.arguments),
+        },
+    }));
+}
+
+function toGatewayToolCalls(toolCalls = []) {
+    return toolCalls.map(toolCall => ({
+        id: toolCall.id,
+        name: toolCall.function.name,
+        arguments: JSON.parse(toolCall.function.arguments || '{}'),
+    }));
+}
 
 function createOpenAIClient(apiKey, baseUrl) {
     return new OpenAI({
@@ -176,22 +212,44 @@ function validateCanvasToolCall(toolCall) {
  * so this pauses before the tool-result turn until the browser reports what
  * it actually created.
  */
-export async function startCanvasToolAgent(messages, { apiKey, baseUrl, modelName }) {
-    const client = createOpenAIClient(apiKey, baseUrl);
-    const requestMessages = [
+export async function startCanvasToolAgent(messages, { apiKey, baseUrl, modelName, modelGatewayRuntime }) {
+    const sourceMessages = [
         new SystemMessage(CHAT_AGENT_SYSTEM_PROMPT),
         ...messages,
-    ].map(toOpenAIMessage);
+    ];
+    let assistantMessage;
+    let requestMessages;
+    let engine = 'legacy-openai';
+    let traceId;
 
-    const firstCompletion = await client.chat.completions.create({
-        model: modelName || "gemini-2.0-flash",
-        messages: requestMessages,
-        tools: CANVAS_TOOLS,
-        tool_choice: "auto",
-        temperature: 0.7,
-        max_tokens: 2048,
-    });
-    const assistantMessage = firstCompletion.choices?.[0]?.message;
+    const canUseGateway = modelGatewayRuntime
+        && sourceMessages.every(message => typeof message.content === 'string');
+    if (canUseGateway) {
+        requestMessages = sourceMessages.map(toGatewayMessage);
+        const gatewayResult = await modelGatewayRuntime.invoke({
+            messages: requestMessages,
+            tools: GATEWAY_CANVAS_TOOLS,
+            parameters: { temperature: 0.7, max_tokens: 2048 },
+        });
+        assistantMessage = {
+            content: gatewayResult.message.content,
+            tool_calls: toOpenAIToolCalls(gatewayResult.message.toolCalls),
+        };
+        engine = 'model-gateway';
+        traceId = gatewayResult.traceId;
+    } else {
+        const client = createOpenAIClient(apiKey, baseUrl);
+        requestMessages = sourceMessages.map(toOpenAIMessage);
+        const firstCompletion = await client.chat.completions.create({
+            model: modelName || "gemini-2.0-flash",
+            messages: requestMessages,
+            tools: CANVAS_TOOLS,
+            tool_choice: "auto",
+            temperature: 0.7,
+            max_tokens: 2048,
+        });
+        assistantMessage = firstCompletion.choices?.[0]?.message;
+    }
     if (!assistantMessage) {
         throw new Error("The OpenAI-compatible gateway returned no assistant message.");
     }
@@ -202,6 +260,7 @@ export async function startCanvasToolAgent(messages, { apiKey, baseUrl, modelNam
             status: "completed",
             response: assistantMessage.content || "",
             actions: [],
+            traceIds: traceId ? [traceId] : [],
         };
     }
 
@@ -211,6 +270,7 @@ export async function startCanvasToolAgent(messages, { apiKey, baseUrl, modelNam
         status: "awaiting_client",
         actions,
         continuation: {
+            engine,
             requestMessages,
             assistantMessage: {
                 content: assistantMessage.content || "",
@@ -218,14 +278,18 @@ export async function startCanvasToolAgent(messages, { apiKey, baseUrl, modelNam
             },
             validatedCalls,
         },
+        traceIds: traceId ? [traceId] : [],
     };
 }
 
 /**
  * Resume a paused tool-call turn using the browser's actual action result.
  */
-export async function completeCanvasToolAgent(continuation, executions, { apiKey, baseUrl, modelName }) {
-    const client = createOpenAIClient(apiKey, baseUrl);
+export async function completeCanvasToolAgent(
+    continuation,
+    executions,
+    { apiKey, baseUrl, modelName, modelGatewayRuntime },
+) {
     const executionByToolCallId = new Map(
         (Array.isArray(executions) ? executions : [])
             .filter(execution => execution && typeof execution.toolCallId === "string")
@@ -262,27 +326,55 @@ export async function completeCanvasToolAgent(continuation, executions, { apiKey
         };
     });
 
-    const finalCompletion = await client.chat.completions.create({
-        model: modelName || "gemini-2.0-flash",
-        messages: [
-            ...continuation.requestMessages,
-            {
-                role: "assistant",
-                content: continuation.assistantMessage.content,
-                tool_calls: continuation.assistantMessage.tool_calls,
-            },
-            ...toolMessages,
-        ],
-        temperature: 0.7,
-        max_tokens: 2048,
-    });
-    const finalMessage = finalCompletion.choices?.[0]?.message;
+    let finalMessage;
+    let traceId;
+    if (continuation.engine === 'model-gateway') {
+        if (!modelGatewayRuntime) {
+            throw new Error('Model Gateway runtime is unavailable for this pending canvas action.');
+        }
+        const gatewayResult = await modelGatewayRuntime.invoke({
+            messages: [
+                ...continuation.requestMessages,
+                {
+                    role: 'assistant',
+                    content: continuation.assistantMessage.content,
+                    toolCalls: toGatewayToolCalls(continuation.assistantMessage.tool_calls),
+                },
+                ...toolMessages.map(message => ({
+                    role: 'tool',
+                    toolCallId: message.tool_call_id,
+                    content: message.content,
+                })),
+            ],
+            parameters: { temperature: 0.7, max_tokens: 2048 },
+        });
+        finalMessage = { content: gatewayResult.message.content };
+        traceId = gatewayResult.traceId;
+    } else {
+        const client = createOpenAIClient(apiKey, baseUrl);
+        const finalCompletion = await client.chat.completions.create({
+            model: modelName || "gemini-2.0-flash",
+            messages: [
+                ...continuation.requestMessages,
+                {
+                    role: "assistant",
+                    content: continuation.assistantMessage.content,
+                    tool_calls: continuation.assistantMessage.tool_calls,
+                },
+                ...toolMessages,
+            ],
+            temperature: 0.7,
+            max_tokens: 2048,
+        });
+        finalMessage = finalCompletion.choices?.[0]?.message;
+    }
     if (!finalMessage) {
         throw new Error("The OpenAI-compatible gateway returned no final message after tool execution.");
     }
 
     return {
         response: finalMessage.content || "已完成画布操作。",
+        traceIds: traceId ? [traceId] : [],
     };
 }
 

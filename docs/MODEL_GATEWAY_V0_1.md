@@ -112,4 +112,12 @@ Mock 已覆盖普通失败、超时、401、404 和 429，并明确区分是否�
 
 ## 4. 下一切片
 
-C3.1 的 HTTP Transport 与 Provider Runtime 已完成。下一步是 C3.2：通过 Feature Flag 把现有 Chat / Tool Calling 渐进接入 Gateway，先运行 Mock/契约回归，再在用户明确授权具体 Provider、模型和预算后做一次低成本真实请求。图片、视频和 Pi Agent Loop 继续后置。
+C3.1 的 HTTP Transport 与 Provider Runtime、C3.2 的 Feature Flag 接入均已完成：
+
+- `CREATIVE_MODEL_GATEWAY_ENABLED=true` 时，服务端在启动阶段统一组装 Chat Gateway；默认关闭，因此旧聊天不受影响；
+- 文本 Chat 的首轮回复、原生 Tool Call、真实 Tool Result 和第二轮确认均通过 Gateway；
+- API 响应携带对应 `traceIds`，但当前尚未提供 Trace UI；
+- 多模态 Chat 暂不硬塞进只支持文本的 v0.1 契约，会继续使用旧链路；
+- Topic Title 生成暂时仍走旧模型入口，后续随 Agent Runtime 一并收口。
+
+下一步是在用户明确授权具体 Provider、模型和预算后做一次低成本真实冒烟请求，确认第三方实际返回格式与 Fake Fetch 契约一致。图片、视频和 Pi Agent Loop 继续后置。

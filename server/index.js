@@ -17,6 +17,7 @@ import tiktokPostRoutes from './routes/tiktok-post.js';
 import { processTikTokVideo, isValidTikTokUrl } from './tools/tiktok.js';
 import localModelsRoutes from './routes/local-models.js';
 import storyboardRoutes from './routes/storyboard.js';
+import { createCanvasChatModelGatewayRuntime } from './agent/modelGatewayRuntime.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,6 +55,16 @@ const API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
+const CREATIVE_MODEL_GATEWAY_ENABLED = process.env.CREATIVE_MODEL_GATEWAY_ENABLED === 'true';
+
+const CHAT_MODEL_GATEWAY_RUNTIME = CREATIVE_MODEL_GATEWAY_ENABLED
+    ? createCanvasChatModelGatewayRuntime({
+        apiKey: API_KEY,
+        baseUrl: GEMINI_BASE_URL,
+        modelName: GEMINI_MODEL,
+        timeoutMs: Number(process.env.CREATIVE_MODEL_GATEWAY_TIMEOUT_MS || 30_000),
+    })
+    : undefined;
 
 if (!API_KEY) {
     console.warn("SERVER WARNING: GEMINI_API_KEY is not set in environment or .env file.");
@@ -1172,6 +1183,7 @@ app.post('/api/chat', async (req, res) => {
             apiKey: API_KEY,
             baseUrl: GEMINI_BASE_URL,
             modelName: GEMINI_MODEL,
+            modelGatewayRuntime: CHAT_MODEL_GATEWAY_RUNTIME,
         });
 
         res.json({
@@ -1179,6 +1191,7 @@ app.post('/api/chat', async (req, res) => {
             response: result.response,
             actions: result.actions,
             pendingActionId: result.pendingActionId,
+            traceIds: result.traceIds,
             topic: result.topic,
             messageCount: result.messageCount
         });
