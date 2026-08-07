@@ -7,6 +7,11 @@
 
 import React, { useState, useCallback, Dispatch, SetStateAction } from 'react';
 import { NodeData, NodeGroup, Viewport } from '../types';
+import {
+    clearActiveWorkflowId,
+    readActiveWorkflowId,
+    writeActiveWorkflowId,
+} from '../workflow/activeWorkflowStorage';
 
 interface WorkflowData {
     id: string | null;
@@ -42,14 +47,14 @@ export const useWorkflow = ({
     onPanelOpen
 }: UseWorkflowOptions) => {
     // Workflow state
-    const [workflowId, setWorkflowId] = useState<string | null>(null);
+    const [workflowId, setWorkflowId] = useState<string | null>(() => readActiveWorkflowId());
     const [isWorkflowPanelOpen, setIsWorkflowPanelOpen] = useState(false);
     const [workflowPanelY, setWorkflowPanelY] = useState(0);
 
     /**
      * Save current workflow to server
      */
-    const handleSaveWorkflow = useCallback(async () => {
+    const handleSaveWorkflow = useCallback(async (): Promise<string> => {
         try {
             const workflow: WorkflowData = {
                 id: workflowId,
@@ -65,13 +70,17 @@ export const useWorkflow = ({
                 body: JSON.stringify(workflow)
             });
 
-            if (response.ok) {
-                const result = await response.json();
-                setWorkflowId(result.id);
-                console.log('Workflow saved:', result.id);
+            if (!response.ok) {
+                throw new Error(`Workflow save failed with HTTP ${response.status}.`);
             }
+            const result = await response.json();
+            setWorkflowId(result.id);
+            writeActiveWorkflowId(result.id);
+            console.log('Workflow saved:', result.id);
+            return result.id;
         } catch (error) {
             console.error('Failed to save workflow:', error);
+            throw error;
         }
     }, [workflowId, canvasTitle, nodes, groups, viewport]);
 
@@ -96,8 +105,10 @@ export const useWorkflow = ({
                 // For public workflows, don't set the workflowId so it saves as a new workflow
                 if (!isPublic) {
                     setWorkflowId(workflow.id);
+                    writeActiveWorkflowId(workflow.id);
                 } else {
                     setWorkflowId(null); // New copy, not linked to public workflow
+                    clearActiveWorkflowId();
                 }
 
                 setCanvasTitle(workflow.title || 'Untitled');
@@ -113,6 +124,9 @@ export const useWorkflow = ({
                     nodeCount: (workflow.nodes || []).length,
                     title: workflow.title || 'Untitled'
                 };
+            } else if (!isPublic && response.status === 404) {
+                setWorkflowId(null);
+                clearActiveWorkflowId();
             }
         } catch (error) {
             console.error('Failed to load workflow:', error);
@@ -142,6 +156,7 @@ export const useWorkflow = ({
      */
     const resetWorkflowId = useCallback(() => {
         setWorkflowId(null);
+        clearActiveWorkflowId();
     }, []);
 
     return {

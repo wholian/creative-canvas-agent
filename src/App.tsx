@@ -293,6 +293,20 @@ export default function App() {
   const [isDirty, setIsDirty] = React.useState(false);
   const hasUnsavedChanges = isDirty && nodes.length > 0;
 
+  // Update saved state only after the backend confirms the write.
+  const handleSaveWithTracking = React.useCallback(async () => {
+    await handleSaveWorkflow();
+    setIsDirty(false);
+  }, [handleSaveWorkflow]);
+
+  // Load workflow and update tracking.
+  const handleLoadWithTracking = React.useCallback(async (id: string) => {
+    ignoreNextChange.current = true;
+    const result = await handleLoadWorkflow(id);
+    setIsDirty(false);
+    return result;
+  }, [handleLoadWorkflow]);
+
   // Mark as dirty when nodes or title change
   const isInitialMount = React.useRef(true);
   const lastLoadingCountRef = React.useRef(0);
@@ -320,18 +334,13 @@ export default function App() {
     lastLoadingCountRef.current = currentLoadingCount;
   }, [nodes, canvasTitle]);
 
-  // Update saved state after workflow save
-  const handleSaveWithTracking = async () => {
-    await handleSaveWorkflow();
-    setIsDirty(false);
-  };
-
-  // Load workflow and update tracking
-  const handleLoadWithTracking = async (id: string) => {
-    ignoreNextChange.current = true;
-    await handleLoadWorkflow(id);
-    setIsDirty(false);
-  };
+  // Restore the last explicitly saved or loaded workflow after a refresh.
+  const didAttemptWorkflowRestore = React.useRef(false);
+  React.useEffect(() => {
+    if (didAttemptWorkflowRestore.current || !workflowId) return;
+    didAttemptWorkflowRestore.current = true;
+    void handleLoadWithTracking(workflowId);
+  }, [handleLoadWithTracking, workflowId]);
 
   const { handleGenerate } = useGeneration({
     nodes,
@@ -435,7 +444,7 @@ export default function App() {
     isDirty,
     nodes,
     onSave: handleSaveWithTracking,
-    interval: 60000 // Save every 60 seconds
+    delay: 1000 // Save one second after the canvas settles
   });
 
   // Generation Recovery Management
@@ -1121,7 +1130,7 @@ export default function App() {
           isChatOpen={isChatOpen}
           canvasTheme={canvasTheme}
           onToggleTheme={() => setCanvasTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-          lastAutoSaveTime={lastAutoSaveTime}
+          lastAutoSaveTime={lastAutoSaveTime || undefined}
         />
       )}
 

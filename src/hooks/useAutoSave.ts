@@ -1,33 +1,33 @@
 /**
  * useAutoSave.ts
  * 
- * Custom hook that periodically saves the canvas state to the backend
- * if there are unsaved changes and no active generations.
+ * Debounces canvas persistence after the latest state change.
  */
 
-import { useEffect, useRef } from 'react';
-import { NodeData, NodeStatus } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import { NodeData } from '../types';
 
 interface UseAutoSaveOptions {
     isDirty: boolean;
     nodes: NodeData[];
     onSave: () => Promise<void>;
-    interval?: number; // In milliseconds, default 60s
+    delay?: number;
 }
 
 export const useAutoSave = ({
     isDirty,
     nodes,
     onSave,
-    interval = 60000
+    delay = 1000
 }: UseAutoSaveOptions) => {
-    const lastSaveTimeRef = useRef<number>(Date.now());
+    const [lastSaveTime, setLastSaveTime] = useState<number | null>(null);
     const isSavingRef = useRef<boolean>(false);
 
     useEffect(() => {
         const checkAndSave = async () => {
-            // Only save if dirty and we have nodes
-            if (!isDirty || nodes.length === 0) return;
+            // Saving an empty dirty canvas is intentional: deleting the final
+            // node must not make it reappear after a refresh.
+            if (!isDirty) return;
 
             // Don't save if already in the middle of a save operation
             if (isSavingRef.current) return;
@@ -36,7 +36,7 @@ export const useAutoSave = ({
                 isSavingRef.current = true;
                 console.log('[Auto-Save] Triggering periodic save...');
                 await onSave();
-                lastSaveTimeRef.current = Date.now();
+                setLastSaveTime(Date.now());
             } catch (error) {
                 console.error('[Auto-Save] Failed to auto-save:', error);
             } finally {
@@ -44,12 +44,14 @@ export const useAutoSave = ({
             }
         };
 
-        const timer = setInterval(checkAndSave, interval);
+        // Debounce persistence after the latest canvas change. Recreating the
+        // timer is intentional: only a settled snapshot should be saved.
+        const timer = setTimeout(checkAndSave, delay);
 
-        return () => clearInterval(timer);
-    }, [isDirty, nodes, onSave, interval]);
+        return () => clearTimeout(timer);
+    }, [isDirty, nodes, onSave, delay]);
 
     return {
-        lastSaveTime: lastSaveTimeRef.current
+        lastSaveTime
     };
 };
