@@ -54,7 +54,7 @@ Provider、Protocol 和 Model 必须分开：
 
 ### OpenAI-compatible 协议适配
 
-已经验证以下双向转换，但尚未发送真实 HTTP 请求：
+已经验证以下双向转换：
 
 - 统一消息 → Chat Completions messages；
 - 统一 Tool → OpenAI function tool；
@@ -62,6 +62,21 @@ Provider、Protocol 和 Model 必须分开：
 - Provider `tool_calls` → 统一 Tool Call；
 - Assistant Tool Call 与 `role=tool` 结果的第二轮回传；
 - Provider Usage → 统一 Token Usage。
+
+### Provider Runtime 与 HTTP Transport
+
+Provider 的运行时连接信息与 Model Registry 分开管理：
+
+- Model Registry 只保存稳定 `providerId`、协议、模型能力和远端模型名；
+- Provider Runtime 保存 Base URL、API Key 和请求超时；
+- 同一个 OpenAI-compatible Transport 可以根据 `providerId` 路由多个三方接口；
+- 调用场景不自行拼接请求路径；Transport 只在规范化 Base URL 后追加一次 `/chat/completions`；
+- 如果误填完整 `/chat/completions` 地址，会先规范化，避免重复拼接；
+- 如果误填 Anthropic `/messages` 地址、URL 内凭据、Query 或 Fragment，会在联网前拒绝；
+- 请求采用 JSON POST、Bearer Authorization 和 AbortController 超时；
+- 401/403、404、429、5xx 和超时映射为统一、可判断是否重试的错误。
+
+Runtime 对外提供的配置摘要只说明 API Key 是否已配置，不返回 Key 内容。自动测试通过注入 Fake Fetch 验证 URL、Headers、请求体、超时和错误映射，不读取现有 Key，也不访问真实 Provider。
 
 ### Trace
 
@@ -87,8 +102,8 @@ Mock 已覆盖普通失败、超时、401、404 和 429，并明确区分是否�
 
 ## 3. 当前明确不包含
 
-- 不读取或保存真实 API Key；
-- 不发起真实网络请求；
+- 不读取用户当前已有的真实 API Key；Provider Runtime 当前只接受调用方显式注入的内存配置，不负责持久化；
+- 尚未用真实 Provider 发起付费请求；
 - 不替换现有线上聊天 Agent；
 - 不改变当前图片、视频生成链路；
 - 不实现 Trace 可视化和持久化，当前只提供内存 Trace Store；
@@ -97,4 +112,4 @@ Mock 已覆盖普通失败、超时、401、404 和 429，并明确区分是否�
 
 ## 4. 下一切片
 
-下一步进入 C3：为已经完成契约测试的 OpenAI-compatible Adapter 增加真实 HTTP Transport 和 Provider 运行时配置，再把现有 Chat / Tool Calling 逐步切换到 Gateway。真实请求必须单独获得授权；图片、视频和 Pi Agent Loop 继续后置。
+C3.1 的 HTTP Transport 与 Provider Runtime 已完成。下一步是 C3.2：通过 Feature Flag 把现有 Chat / Tool Calling 渐进接入 Gateway，先运行 Mock/契约回归，再在用户明确授权具体 Provider、模型和预算后做一次低成本真实请求。图片、视频和 Pi Agent Loop 继续后置。

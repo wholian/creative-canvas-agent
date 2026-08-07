@@ -53,7 +53,10 @@ export interface OpenAIChatCompletionResponse {
 }
 
 export interface OpenAIChatTransport {
-    complete(request: OpenAIChatCompletionRequest): Promise<OpenAIChatCompletionResponse>;
+    complete(
+        request: OpenAIChatCompletionRequest,
+        context: { providerId: string },
+    ): Promise<OpenAIChatCompletionResponse>;
 }
 
 function toOpenAIMessage(message: ModelMessage): OpenAIChatCompletionRequest['messages'][number] {
@@ -124,7 +127,7 @@ export class OpenAIChatAdapter implements ModelAdapter {
 
         let response: OpenAIChatCompletionResponse;
         try {
-            response = await this.transport.complete(payload);
+            response = await this.transport.complete(payload, { providerId: request.provider.id });
         } catch (error) {
             if (error instanceof ModelGatewayError) throw error;
             throw new ModelGatewayError(

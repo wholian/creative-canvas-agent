@@ -4,4 +4,6 @@ export * from './trace.ts';
 export * from './catalog.ts';
 export * from './mockAdapter.ts';
 export * from './openAIChatAdapter.ts';
+export * from './providerRuntime.ts';
+export * from './openAIHttpTransport.ts';
 export * from './gateway.ts';
