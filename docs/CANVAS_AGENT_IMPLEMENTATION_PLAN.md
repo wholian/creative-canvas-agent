@@ -17,7 +17,8 @@
 - M1-B / B2.2 活跃工作流记忆、真实自动保存状态与刷新恢复：完成；
 - M1-B / B2.3 原子 History、Mac 快捷键与 Undo / Redo 浏览器回归：完成；
 - M1-B / B3 手动删除、显式连线与 Connector 原子新增：完成；
-- 当前下一步：进入 C1 Model Registry，不接真实生成模型。
+- M1-C / C1 Model Registry、Mock Adapter 与 OpenAI-compatible 契约适配：完成；
+- 当前下一步：进入 C2 Trace，继续保持无真实网络请求。
 
 ## 1. 推进原则
 
@@ -292,6 +293,8 @@ M1-B 出口门槛：人工画布操作全部通过统一 Ops，UI 没有明显�
 
 ### Slice C1：Model Registry
 
+状态：已完成（2026-08-07）。
+
 工作：
 
 - 定义稳定 `modelId`；
@@ -303,6 +306,14 @@ M1-B 出口门槛：人工画布操作全部通过统一 Ops，UI 没有明显�
 - 模型能力查询；
 - 非法参数拒绝；
 - 用户选择不会被静默替换。
+
+已验证：
+
+- Provider、Protocol、稳定 `modelId` 和远端模型名相互分离；
+- 能力查询、默认参数、未知参数、参数类型和范围均由注册表统一校验；
+- Mock 普通回复、Tool Call 和 Provider 错误可重复测试；
+- OpenAI-compatible 首轮 Tool Call 与第二轮 Tool Result 均能在统一格式和 Provider 格式之间转换；
+- 当前聊天和生成链路尚未切换，不会影响已有页面行为。
 
 ### Slice C2：Mock Gateway 与 Trace
 
@@ -483,11 +494,12 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-进入 Slice C1：
+进入 Slice C2：
 
-- 只定义统一 `ModelRegistry`、Provider 协议和能力/参数 Schema；
-- 先用 Mock Provider 验证模型选择、参数校验和路由，不接真实付费生成；
-- 前端模型选项必须引用稳定 `modelId`，禁止各场景自行拼接 Base URL；
-- 不在 C1 引入 Pi Agent loop；Agent Runtime 仍按计划后置。
+- 为每次统一模型调用建立 Trace ID；
+- 记录模型路由、规范化参数、消息、Tools、Tool Call、Tool Result、耗时和错误；
+- API Key、Authorization 和其他凭据不得进入 Trace；
+- 先使用 Mock 与假 Transport 验证成功、失败和二轮工具调用；
+- 不在 C2 引入 Pi Agent loop，也不接真实付费生成。
 
 当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。
