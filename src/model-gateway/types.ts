@@ -95,6 +95,10 @@ export interface ModelInvocationResult {
     };
 }
 
+export interface GatewayInvocationResult extends ModelInvocationResult {
+    traceId: string;
+}
+
 export interface ModelAdapter {
     readonly protocol: ModelProtocol;
     invoke(request: ResolvedModelInvocation): Promise<ModelInvocationResult>;
@@ -110,16 +114,30 @@ export type ModelGatewayErrorCode =
     | 'invalid_request'
     | 'invalid_parameter'
     | 'adapter_not_found'
+    | 'provider_timeout'
+    | 'provider_access_denied'
+    | 'provider_endpoint_not_found'
+    | 'provider_rate_limited'
     | 'provider_error';
 
 export class ModelGatewayError extends Error {
     readonly code: ModelGatewayErrorCode;
     readonly path?: string;
+    readonly httpStatus?: number;
+    readonly retryable?: boolean;
+    traceId?: string;
 
-    constructor(code: ModelGatewayErrorCode, message: string, path?: string) {
+    constructor(
+        code: ModelGatewayErrorCode,
+        message: string,
+        path?: string,
+        details: { httpStatus?: number; retryable?: boolean } = {},
+    ) {
         super(message);
         this.name = 'ModelGatewayError';
         this.code = code;
         this.path = path;
+        this.httpStatus = details.httpStatus;
+        this.retryable = details.retryable;
     }
 }

@@ -18,7 +18,8 @@
 - M1-B / B2.3 原子 History、Mac 快捷键与 Undo / Redo 浏览器回归：完成；
 - M1-B / B3 手动删除、显式连线与 Connector 原子新增：完成；
 - M1-C / C1 Model Registry、Mock Adapter 与 OpenAI-compatible 契约适配：完成；
-- 当前下一步：进入 C2 Trace，继续保持无真实网络请求。
+- M1-C / C2 脱敏 Trace、Tool Result 记录与错误分类：完成；
+- 当前下一步：进入 C3 HTTP Transport 与 Chat 渐进迁移；真实调用单独授权。
 
 ## 1. 推进原则
 
@@ -317,6 +318,8 @@ M1-B 出口门槛：人工画布操作全部通过统一 Ops，UI 没有明显�
 
 ### Slice C2：Mock Gateway 与 Trace
 
+状态：已完成（2026-08-07）。
+
 工作：
 
 - 实现 `MockModelGateway`；
@@ -329,6 +332,14 @@ M1-B 出口门槛：人工画布操作全部通过统一 Ops，UI 没有明显�
 - 成功、超时、401、404、429；
 - Trace 完整；
 - 凭据不出现在 Trace。
+
+已验证：
+
+- 每次调用生成 Trace ID，并记录 running 到 succeeded / failed 的完整生命周期；
+- 路由、规范化参数、Messages、Tools、Tool Call、Tool Result、响应、Usage 和耗时可追踪；
+- API Key、Authorization、Token、Secret、Password 和消息中的常见凭据形式会被脱敏；
+- 成功、普通失败、超时、401、404、429 和调用前校验失败均有稳定测试；
+- 错误携带统一 Code、可选 HTTP Status、是否可重试和 Trace ID。
 
 ### Slice C3：一个 OpenAI-compatible Chat Adapter
 
@@ -494,12 +505,12 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-进入 Slice C2：
+进入 Slice C3：
 
-- 为每次统一模型调用建立 Trace ID；
-- 记录模型路由、规范化参数、消息、Tools、Tool Call、Tool Result、耗时和错误；
-- API Key、Authorization 和其他凭据不得进入 Trace；
-- 先使用 Mock 与假 Transport 验证成功、失败和二轮工具调用；
-- 不在 C2 引入 Pi Agent loop，也不接真实付费生成。
+- 为 OpenAI-compatible Adapter 增加可替换的真实 HTTP Transport；
+- Provider 运行时配置统一管理 Base URL 和 API Key，禁止调用场景自行拼路径；
+- 先用假 Fetch 测试 Base URL、`/chat/completions`、Headers、超时和错误映射；
+- 再将现有 Chat / Tool Calling 通过 Feature Flag 渐进切换到 Gateway；
+- 真实低成本请求必须单独授权，图片、视频与 Pi Agent Loop 继续后置。
 
 当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。

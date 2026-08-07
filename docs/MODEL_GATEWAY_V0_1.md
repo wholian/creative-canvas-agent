@@ -63,16 +63,38 @@ Provider、Protocol 和 Model 必须分开：
 - Assistant Tool Call 与 `role=tool` 结果的第二轮回传；
 - Provider Usage → 统一 Token Usage。
 
+### Trace
+
+每次 `ModelGateway.invoke()` 都会生成独立 `traceId`，并经历：
+
+```text
+running → succeeded / failed
+```
+
+Trace 当前记录：
+
+- 原始统一请求；
+- 最终选择的 Provider、Protocol 和远端模型名；
+- 应用默认值后的规范化参数；
+- Messages、Tools、Tool Call 与 Tool Result；
+- 统一响应和 Token Usage；
+- 开始、结束时间与耗时；
+- 结构化错误、HTTP 状态和是否建议重试。
+
+Trace Store 在写入时统一深层复制和脱敏。`apiKey`、`Authorization`、Access Token、Refresh Token、Client Secret、Password、Bearer Token 以及常见 Key 字符串不会以明文保存。JSON Schema 中名为 `token` 的字段定义不会被误删。
+
+Mock 已覆盖普通失败、超时、401、404 和 429，并明确区分是否可重试。
+
 ## 3. 当前明确不包含
 
 - 不读取或保存真实 API Key；
 - 不发起真实网络请求；
 - 不替换现有线上聊天 Agent；
 - 不改变当前图片、视频生成链路；
-- 不实现 Trace 可视化；
+- 不实现 Trace 可视化和持久化，当前只提供内存 Trace Store；
 - 不接 Pi Agent Loop；
 - 不把图片和视频强行包装成 Chat Completions。
 
 ## 4. 下一切片
 
-下一步进入 C2 Trace：为统一调用记录脱敏后的请求、模型路由、响应、Tool Call、Tool Result、耗时和错误。仍先使用 Mock 与注入式假 Transport 验证，不接真实付费 API。
+下一步进入 C3：为已经完成契约测试的 OpenAI-compatible Adapter 增加真实 HTTP Transport 和 Provider 运行时配置，再把现有 Chat / Tool Calling 逐步切换到 Gateway。真实请求必须单独获得授权；图片、视频和 Pi Agent Loop 继续后置。

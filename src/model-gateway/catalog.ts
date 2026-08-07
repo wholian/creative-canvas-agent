@@ -53,6 +53,13 @@ export const MOCK_MODELS: ModelDefinition[] = [
         capabilities: ['chat'],
         inputModalities: ['text'],
         outputModalities: ['text'],
-        parameters: CHAT_PARAMETERS,
+        parameters: {
+            ...CHAT_PARAMETERS,
+            error_mode: {
+                type: 'string',
+                enum: ['provider_error', 'timeout', '401', '404', '429'],
+                default: 'provider_error',
+            },
+        },
     },
 ];
