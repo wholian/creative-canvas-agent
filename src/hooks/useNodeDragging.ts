@@ -20,6 +20,7 @@ export const useNodeDragging = () => {
     const dragNodeRef = useRef<DragNode | null>(null);
     const isPanning = useRef<boolean>(false);
     const [isDragging, setIsDragging] = useState<boolean>(false);
+    const [isPanningState, setIsPanningState] = useState<boolean>(false);
 
     // ============================================================================
     // EVENT HANDLERS
@@ -94,8 +95,9 @@ export const useNodeDragging = () => {
      */
     const startPanning = (e: React.PointerEvent) => {
         isPanning.current = true;
-        if (e.target instanceof HTMLElement) {
-            e.target.setPointerCapture(e.pointerId);
+        setIsPanningState(true);
+        if (e.currentTarget instanceof HTMLElement) {
+            e.currentTarget.setPointerCapture(e.pointerId);
         }
     };
 
@@ -123,6 +125,7 @@ export const useNodeDragging = () => {
      */
     const endPanning = () => {
         isPanning.current = false;
+        setIsPanningState(false);
     };
 
     /**
@@ -150,7 +153,7 @@ export const useNodeDragging = () => {
         updatePanning,
         endPanning,
         isDragging,
-        isPanning: isPanning.current,
+        isPanning: isPanningState,
         releasePointerCapture
     };
 };

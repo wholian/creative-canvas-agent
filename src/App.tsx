@@ -58,6 +58,7 @@ import { useTikTokImport } from './hooks/useTikTokImport';
 import { useStoryboardGenerator } from './hooks/useStoryboardGenerator';
 import { StoryboardGeneratorModal } from './components/modals/StoryboardGeneratorModal';
 import { StoryboardVideoModal } from './components/modals/StoryboardVideoModal';
+import { shouldActivateCanvasSpacePan } from './utils/canvasPanKeyboard';
 
 // ============================================================================
 // MAIN COMPONENT
@@ -121,6 +122,7 @@ export default function App() {
   } = usePanelState();
 
   const [canvasHoveredNodeId, setCanvasHoveredNodeId] = useState<string | null>(null);
+  const [isSpacePanMode, setIsSpacePanMode] = useState(false);
 
 
   // Canvas title state (via hook)
@@ -354,8 +356,39 @@ export default function App() {
     updatePanning,
     endPanning,
     isDragging,
+    isPanning,
     releasePointerCapture
   } = useNodeDragging();
+
+  useEffect(() => {
+    const keyboardContext = (event: KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      return {
+        code: event.code,
+        key: event.key,
+        targetTagName: target?.tagName,
+        targetIsContentEditable: target?.isContentEditable,
+      };
+    };
+    const handleSpaceDown = (event: KeyboardEvent) => {
+      if (!shouldActivateCanvasSpacePan(keyboardContext(event))) return;
+      event.preventDefault();
+      setIsSpacePanMode(true);
+    };
+    const stopSpacePan = (event?: KeyboardEvent) => {
+      if (event && event.code !== 'Space' && event.key !== ' ') return;
+      setIsSpacePanMode(false);
+      endPanning();
+    };
+    window.addEventListener('keydown', handleSpaceDown);
+    window.addEventListener('keyup', stopSpacePan);
+    window.addEventListener('blur', stopSpacePan);
+    return () => {
+      window.removeEventListener('keydown', handleSpaceDown);
+      window.removeEventListener('keyup', stopSpacePan);
+      window.removeEventListener('blur', stopSpacePan);
+    };
+  }, [endPanning]);
 
   const {
     selectionBox,
@@ -1069,6 +1102,15 @@ export default function App() {
     }
   };
 
+  const handlePointerDownCapture = (e: React.PointerEvent) => {
+    if (!isSpacePanMode || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startPanning(e);
+    setSelectedConnection(null);
+    setContextMenu(prev => ({ ...prev, isOpen: false }));
+  };
+
   const handleGlobalPointerMove = (e: React.PointerEvent) => {
     // 1. Handle Selection Box Update
     if (updateSelection(e)) return;
@@ -1271,7 +1313,10 @@ export default function App() {
       <div
         ref={canvasRef}
         id="canvas-background"
-        className="absolute inset-0 cursor-grab active:cursor-grabbing"
+        data-space-pan-mode={isSpacePanMode}
+        data-is-panning={isPanning}
+        className="absolute inset-0 cursor-default"
+        onPointerDownCapture={handlePointerDownCapture}
         onPointerDown={handlePointerDown}
         onPointerMove={handleGlobalPointerMove}
         onPointerUp={handleGlobalPointerUp}

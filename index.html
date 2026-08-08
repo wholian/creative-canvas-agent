@@ -37,6 +37,16 @@
       overflow: hidden;
       /* Prevent body scroll, handle in canvas */
     }
+
+    #canvas-background[data-space-pan-mode="true"],
+    #canvas-background[data-space-pan-mode="true"] * {
+      cursor: grab !important;
+    }
+
+    #canvas-background[data-is-panning="true"],
+    #canvas-background[data-is-panning="true"] * {
+      cursor: grabbing !important;
+    }
   </style>
 
 </head>
