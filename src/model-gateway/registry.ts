@@ -8,7 +8,7 @@ import {
     type ResolvedModelInvocation,
 } from './types.ts';
 
-const MODEL_PROTOCOLS = new Set(['mock', 'openai-chat', 'gemini-generate-content', 'async-media-job']);
+const MODEL_PROTOCOLS = new Set(['mock', 'openai-chat', 'openai-image-chat', 'gemini-generate-content', 'async-media-job']);
 const MODEL_CAPABILITIES = new Set(['chat', 'tool_calling', 'image_generation', 'image_editing', 'video_generation']);
 const MODEL_MODALITIES = new Set(['text', 'image', 'video', 'audio']);
 

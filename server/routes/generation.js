@@ -23,7 +23,7 @@ const router = express.Router();
 router.post('/generate-image', async (req, res) => {
     try {
         const { nodeId, prompt, aspectRatio, resolution, imageBase64: rawImageBase64, imageModel, klingReferenceMode, klingFaceIntensity, klingSubjectIntensity } = req.body;
-        const { GEMINI_API_KEY, GEMINI_BASE_URL, GEMINI_IMAGE_MODEL, KLING_ACCESS_KEY, KLING_SECRET_KEY, OPENAI_API_KEY, IMAGES_DIR } = req.app.locals;
+        const { GEMINI_API_KEY, GEMINI_BASE_URL, GEMINI_IMAGE_MODEL, IMAGE_MODEL_GATEWAY_RUNTIME, KLING_ACCESS_KEY, KLING_SECRET_KEY, OPENAI_API_KEY, IMAGES_DIR } = req.app.locals;
 
         // Determine provider
         const isKlingModel = imageModel && imageModel.startsWith('kling-');
@@ -31,6 +31,7 @@ router.post('/generate-image', async (req, res) => {
 
         let imageBuffer;
         let imageFormat = 'png';
+        let traceId;
 
         if (isKlingModel) {
             // --- KLING AI IMAGE GENERATION ---
@@ -145,15 +146,31 @@ router.post('/generate-image', async (req, res) => {
                 imageBase64Array = rawImages.map(img => resolveImageToBase64(img)).filter(Boolean);
             }
 
-            imageBuffer = await generateGeminiImage({
-                prompt,
-                imageBase64Array,
-                aspectRatio,
-                resolution,
-                apiKey: GEMINI_API_KEY,
-                baseUrl: GEMINI_BASE_URL,
-                modelName: GEMINI_IMAGE_MODEL,
-            });
+            if (IMAGE_MODEL_GATEWAY_RUNTIME && !imageBase64Array?.length) {
+                const result = await IMAGE_MODEL_GATEWAY_RUNTIME.generateImage({
+                    prompt,
+                    aspectRatio,
+                    resolution,
+                });
+                const artifact = result.artifacts?.[0];
+                if (!artifact?.base64) throw new Error('Unified Image Gateway returned no image artifact.');
+                imageBuffer = Buffer.from(artifact.base64, 'base64');
+                imageFormat = artifact.mimeType === 'image/jpeg' ? 'jpg'
+                    : artifact.mimeType === 'image/webp' ? 'webp' : 'png';
+                traceId = result.traceId;
+            } else {
+                // Feature-flag and image-editing fallback until those inputs
+                // are supported by the unified Image Gateway.
+                imageBuffer = await generateGeminiImage({
+                    prompt,
+                    imageBase64Array,
+                    aspectRatio,
+                    resolution,
+                    apiKey: GEMINI_API_KEY,
+                    baseUrl: GEMINI_BASE_URL,
+                    modelName: GEMINI_IMAGE_MODEL,
+                });
+            }
         }
 
         // Save to library - use unique filename to preserve previous generations
@@ -169,12 +186,13 @@ router.post('/generate-image', async (req, res) => {
             prompt: prompt,
             model: imageModel || 'gemini-pro',
             createdAt: new Date().toISOString(),
-            type: 'images'
+            type: 'images',
+            ...(traceId ? { traceId } : {}),
         };
         fs.writeFileSync(path.join(IMAGES_DIR, `${metadataId}.json`), JSON.stringify(metadata, null, 2));
 
         console.log(`Image saved: ${saved.url} (model: ${imageModel || 'gemini-pro'})`);
-        return res.json({ resultUrl: saved.url });
+        return res.json({ resultUrl: saved.url, ...(traceId ? { traceId } : {}) });
 
     } catch (error) {
         console.error("Server Image Gen Error:", error);

@@ -3,6 +3,11 @@ import type {
     OpenAIChatCompletionResponse,
     OpenAIChatTransport,
 } from './openAIChatAdapter.ts';
+import type {
+    OpenAIImageChatRequest,
+    OpenAIImageChatResponse,
+    OpenAIImageChatTransport,
+} from './openAIImageChatAdapter.ts';
 import { ProviderRuntimeConfigStore } from './providerRuntime.ts';
 import { ModelGatewayError } from './types.ts';
 
@@ -80,7 +85,7 @@ function isAbortError(error: unknown): boolean {
         : error instanceof Error && error.name === 'AbortError';
 }
 
-export class OpenAICompatibleHttpTransport implements OpenAIChatTransport {
+export class OpenAICompatibleHttpTransport implements OpenAIChatTransport, OpenAIImageChatTransport {
     private readonly configs: ProviderRuntimeConfigStore;
     private readonly fetchImplementation: FetchImplementation;
 
@@ -93,6 +98,20 @@ export class OpenAICompatibleHttpTransport implements OpenAIChatTransport {
         request: OpenAIChatCompletionRequest,
         context: { providerId: string },
     ): Promise<OpenAIChatCompletionResponse> {
+        return this.postCompletion<OpenAIChatCompletionResponse>(request, context);
+    }
+
+    async generateImage(
+        request: OpenAIImageChatRequest,
+        context: { providerId: string },
+    ): Promise<OpenAIImageChatResponse> {
+        return this.postCompletion<OpenAIImageChatResponse>(request, context);
+    }
+
+    private async postCompletion<TResponse>(
+        request: OpenAIChatCompletionRequest | OpenAIImageChatRequest,
+        context: { providerId: string },
+    ): Promise<TResponse> {
         const config = this.configs.require(context.providerId);
         const baseUrl = normalizeOpenAICompatibleBaseUrl(config.baseUrl);
         const controller = new AbortController();
@@ -112,7 +131,7 @@ export class OpenAICompatibleHttpTransport implements OpenAIChatTransport {
             if (!response.ok) throw mapHttpError(response.status);
 
             try {
-                return await response.json() as OpenAIChatCompletionResponse;
+                return await response.json() as TResponse;
             } catch {
                 throw new ModelGatewayError(
                     'provider_error',

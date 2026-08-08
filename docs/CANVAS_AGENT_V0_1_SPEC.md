@@ -729,12 +729,24 @@ interface ModelProfile {
 ```ts
 invokeChat(request): Promise<ChatResult>
 invokeAgent(request): Promise<AgentTurnResult>
+generateImage(request): Promise<ImageGenerationResult>
 createGenerationJob(request): Promise<GenerationJob>
 getGenerationJob(id): Promise<GenerationJob>
 cancelGenerationJob(id): Promise<GenerationJob>
 ```
 
 HTTP 路由形式和具体路径属于实现细节，不在本 Spec 中固定。
+
+当前首个图片 Adapter 使用供应商提供的 OpenAI-compatible
+`POST /v1/chat/completions`，远端模型为 `gemini-2.5-flash-image`。
+虽然线上协议复用 Chat Completions，领域入口仍 MUST 是
+`generateImage`，不得把生图结果伪装成普通聊天消息。Adapter 负责：
+
+- 发送 `modalities: ["text", "image"]`；
+- 归一化 `aspect_ratio` 与 `image_size`；
+- 从 Assistant Content 的 Markdown Data URL 提取图片；
+- 返回结构化 Image Artifact；
+- 在 Trace 中保留调用元数据但移除完整 Base64。
 
 ### 11.4 Trace
 

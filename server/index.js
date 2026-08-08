@@ -18,6 +18,7 @@ import { processTikTokVideo, isValidTikTokUrl } from './tools/tiktok.js';
 import localModelsRoutes from './routes/local-models.js';
 import storyboardRoutes from './routes/storyboard.js';
 import { createCanvasChatModelGatewayRuntime } from './agent/modelGatewayRuntime.js';
+import { createImageModelGatewayRuntime } from './imageModelGatewayRuntime.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,8 @@ const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 const CREATIVE_MODEL_GATEWAY_ENABLED = process.env.CREATIVE_MODEL_GATEWAY_ENABLED === 'true';
+const CREATIVE_IMAGE_MODEL_GATEWAY_ENABLED = CREATIVE_MODEL_GATEWAY_ENABLED
+    && process.env.CREATIVE_IMAGE_MODEL_GATEWAY_ENABLED !== 'false';
 
 const CHAT_MODEL_GATEWAY_RUNTIME = CREATIVE_MODEL_GATEWAY_ENABLED
     ? createCanvasChatModelGatewayRuntime({
@@ -63,6 +66,15 @@ const CHAT_MODEL_GATEWAY_RUNTIME = CREATIVE_MODEL_GATEWAY_ENABLED
         baseUrl: GEMINI_BASE_URL,
         modelName: GEMINI_MODEL,
         timeoutMs: Number(process.env.CREATIVE_MODEL_GATEWAY_TIMEOUT_MS || 30_000),
+    })
+    : undefined;
+
+const IMAGE_MODEL_GATEWAY_RUNTIME = CREATIVE_IMAGE_MODEL_GATEWAY_ENABLED
+    ? createImageModelGatewayRuntime({
+        apiKey: API_KEY,
+        baseUrl: GEMINI_BASE_URL,
+        modelName: GEMINI_IMAGE_MODEL,
+        timeoutMs: Number(process.env.CREATIVE_IMAGE_MODEL_GATEWAY_TIMEOUT_MS || 120_000),
     })
     : undefined;
 
@@ -121,6 +133,7 @@ app.locals.GEMINI_API_KEY = API_KEY;
 app.locals.GEMINI_BASE_URL = GEMINI_BASE_URL;
 app.locals.GEMINI_MODEL = GEMINI_MODEL;
 app.locals.GEMINI_IMAGE_MODEL = GEMINI_IMAGE_MODEL;
+app.locals.IMAGE_MODEL_GATEWAY_RUNTIME = IMAGE_MODEL_GATEWAY_RUNTIME;
 app.locals.KLING_ACCESS_KEY = KLING_ACCESS_KEY;
 app.locals.KLING_SECRET_KEY = KLING_SECRET_KEY;
 app.locals.HAILUO_API_KEY = HAILUO_API_KEY;

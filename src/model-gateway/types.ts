@@ -1,6 +1,7 @@
 export type ModelProtocol =
     | 'mock'
     | 'openai-chat'
+    | 'openai-image-chat'
     | 'gemini-generate-content'
     | 'async-media-job';
 
@@ -11,7 +12,7 @@ export type ModelCapability =
     | 'image_editing'
     | 'video_generation';
 
-export type ModelInvocationCapability = 'chat';
+export type ModelInvocationCapability = 'chat' | 'image_generation';
 
 export type ModelModality = 'text' | 'image' | 'video' | 'audio';
 
@@ -88,6 +89,12 @@ export interface ModelInvocationResult {
         content: string;
         toolCalls?: ModelToolCall[];
     };
+    artifacts?: Array<{
+        type: 'image';
+        mimeType: string;
+        base64: string;
+        byteLength: number;
+    }>;
     finishReason: 'stop' | 'tool_calls';
     usage?: {
         inputTokens: number;

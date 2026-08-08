@@ -23,7 +23,8 @@
 - M1-C / C3.2 Chat / Tool Calling Feature Flag 接入：完成；
 - M1-C / C3.3 低成本真实 Provider 与 Tool Call 两轮冒烟验收：完成；
 - M1-C / C3.4 现有 Chat Agent 六类画布工具、多轮循环与浏览器执行闭环：完成；
-- 当前下一步：进入 D1 Creative Agent Runtime 接口；
+- M1-C / C3.5 OpenAI-compatible Gemini 生图 Adapter 与同步路由接入：完成；
+- 当前下一步：进入 E1 GenerationJob 状态机，把同步生图迁入可审批任务；
 
 ## 1. 推进原则
 
@@ -67,7 +68,7 @@ M1 支持：
 
 M1 不支持：
 
-- 真实图片生成；
+- 由 GenerationJob 管理的真实图片生成（当前仅有 Feature Flag 下的同步 Gateway 过渡路径）；
 - 真实视频生成；
 - Storyboard 重构；
 - 多 Agent；
@@ -494,10 +495,23 @@ M1 稳定后才开始。
 
 ### Slice E3：真实图片 Adapter
 
+状态：E3.1 协议 Adapter 已完成（2026-08-08）；GenerationJob 与 Artifact
+正式接入仍等待 E1 / E2。
+
 - 只接一个图片模型；
 - 一个节点生成一张图片；
 - 失败不覆盖旧 Artifact；
 - Trace 与 Job 对齐。
+
+E3.1 已验证：
+
+- 真实供应商同时支持 Gemini Native 与 OpenAI-compatible Chat Completions；
+- 当前采用 `POST /v1/chat/completions` 和 `gemini-2.5-flash-image`；
+- 一次获授权的最小真实请求返回 200，图片位于 Assistant Content 的 Markdown Data URL；
+- Gateway Image Adapter 统一校验比例/尺寸、提取 Base64 Artifact 并脱敏 Trace；
+- 现有 `/api/generate-image` 在文本生图时通过 Feature Flag 使用新 Gateway；
+- 参考图编辑继续回退原 Gemini SDK，直到 `image_editing` Adapter 单独实现；
+- 自动化测试不产生费用；页面已准备 1:1、1K 临时节点等待用户手动点击最终验收。
 
 ### Slice E4：真实视频 Adapter
 

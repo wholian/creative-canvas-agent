@@ -36,6 +36,10 @@ function redactTraceValueInternal<T>(value: T, parentKey?: string): T {
 
     const output: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (normalizedKey(key) === 'base64' && typeof child === 'string') {
+            output[key] = `[MEDIA_DATA_REDACTED length=${child.length}]`;
+            continue;
+        }
         const isSensitive = SENSITIVE_KEYS.has(normalizedKey(key));
         const isSchemaPropertyDefinition = normalizedKey(parentKey || '') === 'properties'
             && child !== null
