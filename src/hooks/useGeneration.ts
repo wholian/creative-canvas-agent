@@ -15,6 +15,10 @@ interface UseGenerationProps {
     updateNode: (id: string, updates: Partial<NodeData>) => void;
 }
 
+export type GenerationExecutionResult =
+    | { status: 'succeeded'; nodeId: string; resultUrl: string }
+    | { status: 'failed'; nodeId: string; error: string };
+
 export const useGeneration = ({ nodes, updateNode }: UseGenerationProps) => {
     // ============================================================================
     // HELPERS
@@ -82,9 +86,9 @@ export const useGeneration = ({ nodes, updateNode }: UseGenerationProps) => {
      * 
      * @param id - ID of the node to generate content for
      */
-    const handleGenerate = async (id: string) => {
+    const handleGenerate = async (id: string): Promise<GenerationExecutionResult> => {
         const node = nodes.find(n => n.id === id);
-        if (!node) return;
+        if (!node) return { status: 'failed', nodeId: id, error: `Canvas node not found: ${id}.` };
 
         // Get prompts from connected TEXT nodes (if any)
         const getTextNodePrompts = (): string[] => {
@@ -106,7 +110,9 @@ export const useGeneration = ({ nodes, updateNode }: UseGenerationProps) => {
             node.videoModel?.startsWith('kling-') &&
             (node.parentIds && node.parentIds.length >= 2);
 
-        if (!combinedPrompt && !isKlingFrameToFrame) return;
+        if (!combinedPrompt && !isKlingFrameToFrame) {
+            return { status: 'failed', nodeId: id, error: 'A prompt is required before generation.' };
+        }
 
         updateNode(id, { status: NodeStatus.LOADING, generationStartTime: Date.now() });
 
@@ -177,6 +183,8 @@ export const useGeneration = ({ nodes, updateNode }: UseGenerationProps) => {
                     errorMessage: undefined
                 });
 
+                return { status: 'succeeded', nodeId: id, resultUrl };
+
 
             } else if (node.type === NodeType.LOCAL_IMAGE_MODEL) {
                 // --- LOCAL MODEL GENERATION ---
@@ -186,7 +194,7 @@ export const useGeneration = ({ nodes, updateNode }: UseGenerationProps) => {
                         status: NodeStatus.ERROR,
                         errorMessage: 'No local model selected. Please select a model first.'
                     });
-                    return;
+                    return { status: 'failed', nodeId: id, error: 'No local model selected. Please select a model first.' };
                 }
 
                 // Get parent images if any
@@ -222,6 +230,7 @@ export const useGeneration = ({ nodes, updateNode }: UseGenerationProps) => {
                         resultAspectRatio,
                         errorMessage: undefined
                     });
+                    return { status: 'succeeded', nodeId: id, resultUrl };
                 } else {
                     throw new Error(result.error || 'Local generation failed');
                 }
@@ -361,8 +370,11 @@ export const useGeneration = ({ nodes, updateNode }: UseGenerationProps) => {
                     errorMessage: undefined // Clear any previous error
                 });
 
+                return { status: 'succeeded', nodeId: id, resultUrl };
+
 
             }
+            return { status: 'failed', nodeId: id, error: `Node type ${node.type} does not support generation.` };
         } catch (error: any) {
             // Handle errors
             const msg = error.toString().toLowerCase();
@@ -376,6 +388,7 @@ export const useGeneration = ({ nodes, updateNode }: UseGenerationProps) => {
 
             updateNode(id, { status: NodeStatus.ERROR, errorMessage });
             console.error('Generation failed:', error);
+            return { status: 'failed', nodeId: id, error: errorMessage };
         }
     };
 

@@ -6,6 +6,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import type { ExecutionProposal } from '../agent-runtime/executionProposal';
 
 // ============================================================================
 // TYPES
@@ -52,19 +53,35 @@ export interface ConnectionCanvasAction {
     type: 'connect_nodes' | 'disconnect_nodes'; toolCallId: string;
     fromNodeId: string; toNodeId: string; expectedSnapshotVersion: string;
 }
-export type CanvasAction = AddCanvasAction | SnapshotCanvasAction | UpdateCanvasAction | DeleteCanvasAction | ConnectionCanvasAction;
+export interface RequestImageGenerationAction {
+    type: 'request_generation';
+    generationType: 'image';
+    toolCallId: string;
+    nodeId: string;
+    expectedSnapshotVersion: string;
+    approvalDecision?: 'approved';
+}
+export type CanvasAction = AddCanvasAction | SnapshotCanvasAction | UpdateCanvasAction | DeleteCanvasAction | ConnectionCanvasAction | RequestImageGenerationAction;
 
 export interface CanvasActionExecution {
     toolCallId: string;
-    status: 'succeeded' | 'failed';
+    status: 'awaiting_approval' | 'succeeded' | 'failed';
     nodeId?: string;
-    operation?: 'snapshot' | 'add' | 'update' | 'delete' | 'connect' | 'disconnect';
+    operation?: 'snapshot' | 'add' | 'update' | 'delete' | 'connect' | 'disconnect' | 'request_generation';
     snapshotVersion?: string;
     snapshot?: unknown;
     connectionId?: string;
     deletedConnectionIds?: string[];
+    proposalId?: string;
+    proposal?: ExecutionProposal;
+    resultUrl?: string;
     errorCode?: string;
     error?: string;
+}
+
+export interface PendingExecutionApproval {
+    proposal: ExecutionProposal;
+    pendingActionId: string;
 }
 
 interface UseChatAgentOptions {
@@ -79,7 +96,11 @@ interface UseChatAgentReturn {
     error: string | null;
     sessions: ChatSession[];
     isLoadingSessions: boolean;
+    pendingApproval: PendingExecutionApproval | null;
+    isApprovalExecuting: boolean;
     sendMessage: (content: string, media?: { type: 'image' | 'video'; url: string; base64?: string }[]) => Promise<void>;
+    approvePendingApproval: () => Promise<void>;
+    rejectPendingApproval: () => Promise<void>;
     startNewChat: () => void;
     loadSession: (sessionId: string) => Promise<void>;
     deleteSession: (sessionId: string) => Promise<void>;
@@ -118,6 +139,19 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
     const [error, setError] = useState<string | null>(null);
     const [sessions, setSessions] = useState<ChatSession[]>([]);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+    const [pendingApproval, setPendingApproval] = useState<PendingExecutionApproval | null>(null);
+    const [isApprovalExecuting, setIsApprovalExecuting] = useState(false);
+
+    interface PendingApprovalContext {
+        pendingActionId: string;
+        actions: CanvasAction[];
+        executions: CanvasActionExecution[];
+        approvalAction: RequestImageGenerationAction;
+        proposal: ExecutionProposal;
+        toolRounds: number;
+    }
+    const pendingApprovalRef = useRef<PendingApprovalContext | null>(null);
+    const resolvingApprovalRef = useRef(false);
 
     // Use ref to track if we've initialized a session
     const hasInitializedRef = useRef(false);
@@ -192,7 +226,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [onCanvasActions]);
 
     /**
      * Delete a session
@@ -217,18 +251,88 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         }
     }, [sessionId, refreshSessions]);
 
+    const finishAgentResponse = useCallback(async (data: any) => {
+        const aiMessage: ChatMessage = {
+            id: generateMessageId(),
+            role: 'assistant',
+            content: data.response || '已完成画布操作。',
+            timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, aiMessage]);
+        if (data.topic) setTopic(data.topic);
+        await refreshSessions();
+    }, [refreshSessions]);
+
     /**
-     * Send a message to the chat agent
+     * Execute ordinary browser-owned tools until the model finishes or one
+     * execution returns an approval proposal. In the latter case no tool
+     * result is sent yet: the server continuation remains paused.
      */
+    const continueToolLoop = useCallback(async (initialData: any, initialToolRounds = 0): Promise<void> => {
+        let data = initialData;
+        let toolRounds = initialToolRounds;
+        while (data.pendingActionId && Array.isArray(data.actions)) {
+            toolRounds += 1;
+            if (toolRounds > 5) throw new Error('Canvas Agent exceeded the 5-round tool-call limit.');
+
+            const actions = data.actions as CanvasAction[];
+            let executions: CanvasActionExecution[];
+            try {
+                executions = await onCanvasActions?.(actions) || [];
+            } catch (executionError: unknown) {
+                executions = actions.map(action => ({
+                    toolCallId: action.toolCallId,
+                    status: 'failed' as const,
+                    error: executionError instanceof Error ? executionError.message : 'The browser could not apply this canvas action.',
+                }));
+            }
+
+            const approvalExecution = executions.find(execution => execution.status === 'awaiting_approval' && execution.proposal);
+            if (approvalExecution?.proposal) {
+                const approvalAction = actions.find(action => action.toolCallId === approvalExecution.toolCallId);
+                if (!approvalAction || approvalAction.type !== 'request_generation') {
+                    throw new Error('The browser returned an approval proposal for an unsupported action.');
+                }
+                const context: PendingApprovalContext = {
+                    pendingActionId: data.pendingActionId,
+                    actions,
+                    executions,
+                    approvalAction,
+                    proposal: approvalExecution.proposal,
+                    toolRounds,
+                };
+                pendingApprovalRef.current = context;
+                setPendingApproval({ proposal: context.proposal, pendingActionId: context.pendingActionId });
+                return;
+            }
+
+            const completionResponse = await fetch(`/api/chat/actions/${data.pendingActionId}/complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ executions }),
+            });
+            if (!completionResponse.ok) {
+                const errData = await completionResponse.json().catch(() => ({}));
+                throw new Error(errData.error || completionResponse.statusText);
+            }
+            data = await completionResponse.json();
+        }
+        await finishAgentResponse(data);
+    }, [finishAgentResponse, onCanvasActions]);
+
+    /** Send a message to the chat agent. */
     const sendMessage = useCallback(async (
         content: string,
         media?: { type: 'image' | 'video'; url: string; base64?: string }[]
     ) => {
+        if (pendingApprovalRef.current) {
+            setError('Please approve or reject the pending execution before sending another message.');
+            return;
+        }
         const currentSessionId = ensureSession();
         setError(null);
         setIsLoading(true);
 
-        // Add user message immediately
         const userMessage: ChatMessage = {
             id: generateMessageId(),
             role: 'user',
@@ -245,65 +349,14 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
                 body: JSON.stringify({
                     sessionId: currentSessionId,
                     message: content,
-                    media: media ? media.map(m => ({
-                        type: m.type,
-                        base64: m.base64 || m.url, // Use base64 if available, otherwise URL
-                    })) : undefined,
+                    media: media ? media.map(m => ({ type: m.type, base64: m.base64 || m.url })) : undefined,
                 }),
             });
-
             if (!response.ok) {
                 const errData = await response.json().catch(() => ({}));
                 throw new Error(errData.error || response.statusText);
             }
-
-            let data = await response.json();
-
-            // The model may need several tool rounds, for example:
-            // read snapshot -> delete by exact node ID -> give a final answer.
-            let toolRounds = 0;
-            while (data.pendingActionId && Array.isArray(data.actions)) {
-                toolRounds += 1;
-                if (toolRounds > 5) throw new Error('Canvas Agent exceeded the 5-round tool-call limit.');
-                let executions: CanvasActionExecution[] = [];
-                try {
-                    executions = await onCanvasActions?.(data.actions as CanvasAction[]) || [];
-                } catch (executionError: unknown) {
-                    executions = (data.actions as CanvasAction[]).map(action => ({
-                        toolCallId: action.toolCallId,
-                        status: 'failed' as const,
-                        error: executionError instanceof Error ? executionError.message : 'The browser could not apply this canvas action.',
-                    }));
-                }
-
-                const completionResponse = await fetch(`/api/chat/actions/${data.pendingActionId}/complete`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ executions }),
-                });
-                if (!completionResponse.ok) {
-                    const errData = await completionResponse.json().catch(() => ({}));
-                    throw new Error(errData.error || completionResponse.statusText);
-                }
-                data = await completionResponse.json();
-            }
-
-            // Add AI response
-            const aiMessage: ChatMessage = {
-                id: generateMessageId(),
-                role: 'assistant',
-                content: data.response || '已完成画布操作。',
-                timestamp: new Date(),
-            };
-            setMessages(prev => [...prev, aiMessage]);
-
-            // Update topic if returned
-            if (data.topic) {
-                setTopic(data.topic);
-            }
-
-            // Refresh sessions list to show the new/updated session
-            await refreshSessions();
+            await continueToolLoop(await response.json());
         } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
             setError(errorMessage);
@@ -311,12 +364,80 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         } finally {
             setIsLoading(false);
         }
-    }, [ensureSession, onCanvasActions, refreshSessions]);
+    }, [continueToolLoop, ensureSession]);
+
+    const resolvePendingApproval = useCallback(async (decision: 'approved' | 'rejected') => {
+        const context = pendingApprovalRef.current;
+        if (!context || resolvingApprovalRef.current) return;
+
+        resolvingApprovalRef.current = true;
+        setError(null);
+        setIsApprovalExecuting(true);
+        setIsLoading(true);
+        try {
+            let decisionExecution: CanvasActionExecution;
+            if (decision === 'approved') {
+                const approvedAction: RequestImageGenerationAction = {
+                    ...context.approvalAction,
+                    approvalDecision: 'approved',
+                };
+                const executions = await onCanvasActions?.([approvedAction]) || [];
+                decisionExecution = executions[0] || {
+                    toolCallId: approvedAction.toolCallId,
+                    status: 'failed',
+                    operation: 'request_generation',
+                    errorCode: 'missing_execution_result',
+                    error: 'The browser returned no generation result.',
+                };
+            } else {
+                decisionExecution = {
+                    toolCallId: context.approvalAction.toolCallId,
+                    status: 'failed',
+                    operation: 'request_generation',
+                    nodeId: context.approvalAction.nodeId,
+                    proposalId: context.proposal.proposalId,
+                    errorCode: 'user_rejected',
+                    error: 'User rejected the proposed image generation.',
+                };
+            }
+
+            const executions = context.executions.map(execution =>
+                execution.toolCallId === decisionExecution.toolCallId ? decisionExecution : execution);
+            pendingApprovalRef.current = null;
+            setPendingApproval(null);
+
+            const completionResponse = await fetch(`/api/chat/actions/${context.pendingActionId}/complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ executions }),
+            });
+            if (!completionResponse.ok) {
+                const errData = await completionResponse.json().catch(() => ({}));
+                throw new Error(errData.error || completionResponse.statusText);
+            }
+            await continueToolLoop(await completionResponse.json(), context.toolRounds);
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : 'Failed to resolve execution approval';
+            setError(errorMessage);
+            console.error('Approval error:', err);
+        } finally {
+            resolvingApprovalRef.current = false;
+            setIsApprovalExecuting(false);
+            setIsLoading(false);
+        }
+    }, [continueToolLoop, onCanvasActions]);
+
+    const approvePendingApproval = useCallback(() => resolvePendingApproval('approved'), [resolvePendingApproval]);
+    const rejectPendingApproval = useCallback(() => resolvePendingApproval('rejected'), [resolvePendingApproval]);
 
     /**
      * Start a new chat session
      */
     const startNewChat = useCallback(() => {
+        if (pendingApprovalRef.current) {
+            setError('Approve or reject the pending execution before starting a new chat.');
+            return;
+        }
         setMessages([]);
         setTopic(null);
         setSessionId(generateSessionId());
@@ -337,7 +458,11 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         error,
         sessions,
         isLoadingSessions,
+        pendingApproval,
+        isApprovalExecuting,
         sendMessage,
+        approvePendingApproval,
+        rejectPendingApproval,
         startNewChat,
         loadSession,
         deleteSession,

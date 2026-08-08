@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { X, History, Paperclip, Globe, Settings, Send, Sparkles, Plus, Loader2, ChevronLeft, Trash2, MessageSquare } from 'lucide-react';
+import { X, History, Paperclip, Globe, Settings, Send, Sparkles, Plus, Loader2, ChevronLeft, Trash2, MessageSquare, ShieldCheck } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import {
     useChatAgent,
@@ -70,7 +70,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         error,
         sessions,
         isLoadingSessions,
+        pendingApproval,
+        isApprovalExecuting,
         sendMessage,
+        approvePendingApproval,
+        rejectPendingApproval,
         startNewChat,
         loadSession,
         deleteSession,
@@ -89,7 +93,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [messages]);
+    }, [messages, pendingApproval]);
 
     // --- Event Handlers ---
 
@@ -162,7 +166,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     };
 
     const handleSend = async () => {
-        if ((!message.trim() && attachedMedia.length === 0) || isLoading) return;
+        if ((!message.trim() && attachedMedia.length === 0) || isLoading || pendingApproval) return;
 
         const currentMessage = message;
         const currentMedia = attachedMedia;
@@ -409,6 +413,71 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                             />
                         ))}
 
+                        {pendingApproval && (() => {
+                            const proposal = pendingApproval.proposal;
+                            const parameters = proposal.display.parameters;
+                            const estimatedCost = proposal.display.estimatedCost;
+                            return (
+                                <div className={`my-4 rounded-2xl border p-4 ${isDark ? 'border-cyan-500/40 bg-cyan-950/20' : 'border-cyan-300 bg-cyan-50'}`}>
+                                    <div className="flex items-start gap-3">
+                                        <div className={`mt-0.5 rounded-lg p-2 ${isDark ? 'bg-cyan-500/15 text-cyan-300' : 'bg-cyan-100 text-cyan-700'}`}>
+                                            <ShieldCheck size={18} />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-neutral-900'}`}>
+                                                {proposal.display.title}
+                                            </div>
+                                            <div className={`mt-0.5 truncate text-xs ${isDark ? 'text-neutral-400' : 'text-neutral-600'}`}>
+                                                {proposal.display.summary} · {proposal.target.id}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className={`mt-3 grid grid-cols-2 gap-x-3 gap-y-2 rounded-xl p-3 text-xs ${isDark ? 'bg-black/20 text-neutral-300' : 'bg-white/80 text-neutral-700'}`}>
+                                        <span className="text-neutral-500">Model</span>
+                                        <span className="text-right">{String(parameters.modelName || parameters.modelId || 'Default')}</span>
+                                        <span className="text-neutral-500">Aspect ratio</span>
+                                        <span className="text-right">{String(parameters.aspectRatio || 'Auto')}</span>
+                                        <span className="text-neutral-500">Quality</span>
+                                        <span className="text-right">{String(parameters.quality || 'Auto')}</span>
+                                        <span className="text-neutral-500">Reference inputs</span>
+                                        <span className="text-right">{String(parameters.referenceInputCount || 0)}</span>
+                                        <span className="text-neutral-500">Estimated cost</span>
+                                        <span className="text-right">
+                                            {estimatedCost ? `≈ $${estimatedCost.amount.toFixed(2)} ${estimatedCost.currency}` : 'Unavailable'}
+                                        </span>
+                                    </div>
+
+                                    <div className={`mt-3 max-h-28 overflow-y-auto rounded-xl border p-3 text-xs leading-relaxed ${isDark ? 'border-neutral-700 bg-neutral-900/70 text-neutral-300' : 'border-neutral-200 bg-white text-neutral-700'}`}>
+                                        {String(parameters.prompt || '')}
+                                    </div>
+                                    {estimatedCost?.note && (
+                                        <p className={`mt-2 text-[11px] leading-relaxed ${isDark ? 'text-neutral-500' : 'text-neutral-500'}`}>
+                                            {estimatedCost.note}
+                                        </p>
+                                    )}
+
+                                    <div className="mt-4 flex justify-end gap-2">
+                                        <button
+                                            onClick={rejectPendingApproval}
+                                            disabled={isApprovalExecuting}
+                                            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${isDark ? 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700' : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'} disabled:cursor-not-allowed disabled:opacity-50`}
+                                        >
+                                            Reject
+                                        </button>
+                                        <button
+                                            onClick={approvePendingApproval}
+                                            disabled={isApprovalExecuting}
+                                            className="flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                            {isApprovalExecuting && <Loader2 size={13} className="animate-spin" />}
+                                            {isApprovalExecuting ? 'Generating…' : 'Confirm & generate'}
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
                         {/* Loading indicator */}
                         {isLoading && (
                             <div className="flex justify-start mb-4">
@@ -471,7 +540,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                         className={`w-full bg-transparent text-sm outline-none mb-3 resize-none min-h-[24px] max-h-[120px] ${isDark ? 'text-white placeholder:text-neutral-500' : 'text-neutral-900 placeholder:text-neutral-400'}`}
                         rows={1}
                         style={{ scrollbarWidth: 'none' }}
-                        disabled={isLoading}
+                        disabled={isLoading || Boolean(pendingApproval)}
                         onCompositionStart={() => {
                             isComposingRef.current = true;
                         }}
@@ -513,8 +582,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                             </button>
                             <button
                                 onClick={handleSend}
-                                disabled={isLoading || (!message.trim() && !attachedMedia)}
-                                className={`p-2 rounded-full transition-colors text-white ${isLoading || (!message.trim() && !attachedMedia)
+                                disabled={isLoading || Boolean(pendingApproval) || (!message.trim() && !attachedMedia)}
+                                className={`p-2 rounded-full transition-colors text-white ${isLoading || pendingApproval || (!message.trim() && !attachedMedia)
                                     ? 'bg-neutral-600 cursor-not-allowed'
                                     : 'bg-cyan-500 hover:bg-cyan-400'
                                     }`}

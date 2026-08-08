@@ -54,6 +54,7 @@
 12. 使用 `@earendil-works/pi-ai` 作为模型 Provider 基础层，但统一模型中枢仍由本项目定义和控制。
 13. Pi 必须位于项目自有接口之后，Canvas Domain 与业务代码不得直接依赖 Pi 类型。
 14. 不依赖 Codex 或 Claude CLI 运行产品 Agent；二者未来只能作为可选 Adapter。
+15. Agent 发起图片或视频生成时必须先创建可见的执行提案；即使用户在消息中明确说“生成”，也不视为预授权，用户仍需在执行卡片上确认。
 
 ## 3. v0.1 目标
 
@@ -524,7 +525,7 @@ get_generation_status
 - `request_generation` 只创建生成请求；是否执行由审批策略决定。
 - 工具参数 MUST 使用 JSON Schema 声明必填项、选填项、枚举和长度限制。
 
-当前“画布操作闭环”切片只开放前六个工具；生成相关工具继续后置：
+当前切片开放六个画布工具和一个带人工审批的图片生成请求工具；通用生成任务查询继续后置：
 
 | Tool | 作用 | 关键参数 |
 | --- | --- | --- |
@@ -534,6 +535,7 @@ get_generation_status
 | `delete_canvas_node` | 删除节点并级联删除关联连接 | `node_id`、`expected_snapshot_version` |
 | `connect_canvas_nodes` | 建立父节点到子节点的 input 连接 | `from_node_id`、`to_node_id`、`expected_snapshot_version` |
 | `disconnect_canvas_nodes` | 删除指定父子节点间的 input 连接 | `from_node_id`、`to_node_id`、`expected_snapshot_version` |
+| `request_image_generation` | 为已有图片节点提出一次生成执行提案 | `node_id`、`expected_snapshot_version` |
 
 `update_canvas_node.patch` v0.1 只允许以下字段：
 
@@ -622,7 +624,7 @@ Snapshot MUST NOT 返回 Base64、完整媒体、API Key、编辑器画布数据
 {
   "toolCallId": "call-id",
   "status": "succeeded | failed",
-  "operation": "snapshot | add | update | delete | connect | disconnect",
+  "operation": "snapshot | add | update | delete | connect | disconnect | request_generation",
   "snapshotVersion": "canvas-v1-...",
   "nodeId": "optional-real-node-id",
   "connectionId": "optional-real-connection-id",
@@ -660,7 +662,7 @@ Pi Agent Core 与本项目概念的映射如下：
 
 ## 10. 人工确认与生成边界
 
-v0.1 提议使用以下规则：
+以下规则已经确认：
 
 | 动作 | 默认是否需要确认 |
 | --- | --- |
@@ -668,12 +670,43 @@ v0.1 提议使用以下规则：
 | 创建草稿节点 | 否 |
 | 修改未锁定草稿节点 | 否 |
 | 删除节点或连接 | 是 |
-| 创建图片生成任务 | 是 |
-| 创建视频生成任务 | 是 |
+| 请求图片生成 | 是，在 Agent 对话中展示执行提案 |
+| 请求视频生成 | 是，在 Agent 对话中展示执行提案 |
 | 提交已确认任务 | 不再次确认 |
 | 自动重试生成 | 是 |
 
-待确认：如果用户在当前消息中明确说“生成图片/视频”，是否视为本次任务的一次预授权。
+用户在当前消息中明确说“生成图片/视频”不构成预授权。模型只能提出执行请求，运行时必须暂停 Tool Loop，等待用户对本次提案作出批准或拒绝。
+
+### 10.1 ExecutionProposal
+
+审批协议必须是通用运行时对象，不得写死为 ChatPanel 的生图特例：
+
+```ts
+interface ExecutionProposal {
+  proposalId: string;
+  toolCallId: string;
+  toolName: string;
+  status: "awaiting_approval" | "executing" | "succeeded" | "failed" | "rejected";
+  target: {
+    type: "canvas_node";
+    id: string;
+    expectedRevision: string;
+  };
+  display: {
+    title: string;
+    summary: string;
+    parameters: Record<string, unknown>;
+    estimatedCost?: { amount: number; currency: "USD"; note?: string };
+  };
+  arguments: Record<string, unknown>;
+}
+```
+
+v0.1 的第一个接入工具为 `request_image_generation`。提案卡 MUST 展示目标节点、Prompt、模型、比例、质量和可获得的费用估算。提案参数由当前画布节点读取，模型不得在请求执行时悄悄覆盖节点设置。
+
+批准前后 MUST 分别校验 `expectedRevision`。审批期间节点发生变化时，本次提案失效，必须重新读取画布并重新请求审批。拒绝 MUST 作为结构化 Tool Result 回传给 Agent，并且不得调用生成模型。
+
+v0.1 只实现单个图片生成提案的内存暂停与恢复。审批持久化、多任务队列、批量审批、权限策略和跨会话恢复在完整 Creative Agent Runtime 阶段统一实现。
 
 无论审批策略如何，系统 MUST：
 
@@ -1034,13 +1067,12 @@ server/
 以下问题会改变实现，不应由开发过程默认决定：
 
 1. v0.1 的第一批正式节点是否只包含 Text、Image、Video，Storyboard 暂走兼容层？
-2. 用户在消息中明确说“生成”时，是否直接视为一次生成审批？
-3. 删除单个空节点是否也需要确认，还是只有批量删除与含 Artifact 的节点需要确认？
-4. 画布 Source of Truth 采用“浏览器运行时 + 服务端快照”，还是“服务端权威状态”？
-5. v0.1 是否立即使用 SQLite，还是先沿用现有工作流存储并只抽象接口？
-6. 是否在 v0.1 实现 `locked`，以及锁定是整个节点还是字段级？
-7. Agent 每轮最多执行多少次工具循环？提议为 5。
-8. Trace 是否默认保存完整 Prompt 与响应，还是仅在开发模式完整保存？
+2. 删除单个空节点是否也需要确认，还是只有批量删除与含 Artifact 的节点需要确认？
+3. 画布 Source of Truth 采用“浏览器运行时 + 服务端快照”，还是“服务端权威状态”？
+4. v0.1 是否立即使用 SQLite，还是先沿用现有工作流存储并只抽象接口？
+5. 是否在 v0.1 实现 `locked`，以及锁定是整个节点还是字段级？
+6. Agent 每轮最多执行多少次工具循环？提议为 5。
+7. Trace 是否默认保存完整 Prompt 与响应，还是仅在开发模式完整保存？
 
 Pi Agent Core 和 Pi AI 的采用已经确认，不属于待确认项；待确认的是其上层产品策略，而不是是否使用 Pi。
 

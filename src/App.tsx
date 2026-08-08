@@ -21,7 +21,8 @@ import { useCanvasDomainMirror } from './hooks/useCanvasDomainMirror';
 import { applyAgentCanvasActions } from './canvas-adapters/agentCanvasOperationBridge';
 import { useConnectionDragging } from './hooks/useConnectionDragging';
 import { useNodeDragging } from './hooks/useNodeDragging';
-import { useGeneration } from './hooks/useGeneration';
+import { useGeneration, type GenerationExecutionResult } from './hooks/useGeneration';
+import { prepareImageGenerationProposal } from './agent-runtime/executionProposal';
 import { useSelectionBox } from './hooks/useSelectionBox';
 import { useGroupManagement } from './hooks/useGroupManagement';
 import { useHistory } from './hooks/useHistory';
@@ -167,6 +168,9 @@ export default function App() {
   // not re-render between add -> connect, so the next round must see the graph
   // produced by the previous round immediately.
   const agentCanvasNodesRef = React.useRef(nodes);
+  const agentGenerationExecutorRef = React.useRef<(nodeId: string) => Promise<GenerationExecutionResult>>(
+    async nodeId => ({ status: 'failed', nodeId, error: 'Image generation is not ready yet.' })
+  );
   React.useEffect(() => {
     agentCanvasNodesRef.current = nodes;
   }, [nodes]);
@@ -176,9 +180,74 @@ export default function App() {
   useCanvasDomainMirror({ nodes, viewport, title: canvasTitle });
 
   const handleAgentCanvasActions = React.useCallback(async (actions: CanvasAction[]): Promise<CanvasActionExecution[]> => {
+    const generationActions = actions.filter(action => action.type === 'request_generation');
+    if (generationActions.length > 0) {
+      if (generationActions.length !== actions.length || generationActions.length > 1) {
+        return actions.map(action => ({
+          toolCallId: action.toolCallId,
+          status: 'failed',
+          operation: action.type === 'request_generation' ? 'request_generation' : undefined,
+          errorCode: 'mixed_or_multiple_approval_batch',
+          error: 'Generation approval must be requested alone, one node at a time.',
+        }));
+      }
+
+      const action = generationActions[0];
+      const prepared = prepareImageGenerationProposal(action, agentCanvasNodesRef.current, canvasTitle);
+      if (prepared.status === 'failed') {
+        return [{
+          toolCallId: action.toolCallId,
+          status: 'failed',
+          operation: 'request_generation',
+          nodeId: action.nodeId,
+          snapshotVersion: prepared.snapshotVersion,
+          errorCode: prepared.errorCode,
+          error: prepared.error,
+        }];
+      }
+
+      if (action.approvalDecision !== 'approved') {
+        return [{
+          toolCallId: action.toolCallId,
+          status: 'awaiting_approval',
+          operation: 'request_generation',
+          nodeId: action.nodeId,
+          snapshotVersion: action.expectedSnapshotVersion,
+          proposalId: prepared.proposal.proposalId,
+          proposal: prepared.proposal,
+        }];
+      }
+
+      const result = await agentGenerationExecutorRef.current(action.nodeId);
+      if (result.status === 'failed') {
+        return [{
+          toolCallId: action.toolCallId,
+          status: 'failed',
+          operation: 'request_generation',
+          nodeId: action.nodeId,
+          proposalId: prepared.proposal.proposalId,
+          errorCode: 'generation_failed',
+          error: result.error,
+        }];
+      }
+      agentCanvasNodesRef.current = agentCanvasNodesRef.current.map(node =>
+        node.id === action.nodeId
+          ? { ...node, status: NodeStatus.SUCCESS, resultUrl: result.resultUrl, errorMessage: undefined }
+          : node);
+      return [{
+        toolCallId: action.toolCallId,
+        status: 'succeeded',
+        operation: 'request_generation',
+        nodeId: action.nodeId,
+        proposalId: prepared.proposal.proposalId,
+        resultUrl: result.resultUrl,
+      }];
+    }
+
+    const canvasActions = actions.filter(action => action.type !== 'request_generation');
     if (import.meta.env.VITE_CANVAS_OPERATION_BRIDGE !== 'false') {
       const result = await applyAgentCanvasActions({
-        actions,
+        actions: canvasActions,
         nodes: agentCanvasNodesRef.current,
         viewport,
         title: canvasTitle,
@@ -194,7 +263,7 @@ export default function App() {
       return result.executions;
     }
 
-    return actions.map(action => {
+    return canvasActions.map(action => {
       try {
         if (action.type !== 'add_node') {
           return { toolCallId: action.toolCallId, status: 'failed', error: 'Unsupported canvas action.' };
@@ -380,6 +449,7 @@ export default function App() {
   const handleGenerateRef = React.useRef(handleGenerate);
   React.useEffect(() => {
     handleGenerateRef.current = handleGenerate;
+    agentGenerationExecutorRef.current = handleGenerate;
   }, [handleGenerate]);
 
   // Create new canvas

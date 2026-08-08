@@ -127,6 +127,51 @@ test('canvas chat can read a snapshot and use its exact ID in a later tool round
     assert.deepEqual(invocations[2].messages.map(message => message.role).slice(-4), ['assistant', 'tool', 'assistant', 'tool']);
 });
 
+test('image generation request pauses for browser approval and returns the real artifact result', async () => {
+    const invocations: Array<Record<string, any>> = [];
+    const modelGatewayRuntime = {
+        async invoke(request: Record<string, any>) {
+            invocations.push(structuredClone(request));
+            if (invocations.length === 1) return {
+                traceId: 'trace-generation-request',
+                message: { role: 'assistant', content: '', toolCalls: [{
+                    id: 'call-generate',
+                    name: 'request_image_generation',
+                    arguments: { node_id: 'image-7', expected_snapshot_version: 'canvas-v1-ready' },
+                }] },
+            };
+            return {
+                traceId: 'trace-generation-result',
+                message: { role: 'assistant', content: '图片已经按确认的参数生成。' },
+            };
+        },
+    };
+    const config = { apiKey: 'unused', baseUrl: 'https://unused.example/v1', modelName: 'unused', modelGatewayRuntime };
+
+    const started = await startCanvasToolAgent([new HumanMessage('生成这个图片节点')], config);
+    assert.equal(started.status, 'awaiting_client');
+    assert.deepEqual(started.actions[0], {
+        type: 'request_generation',
+        generationType: 'image',
+        toolCallId: 'call-generate',
+        nodeId: 'image-7',
+        expectedSnapshotVersion: 'canvas-v1-ready',
+    });
+
+    const completed = await completeCanvasToolAgent(started.continuation, [{
+        toolCallId: 'call-generate',
+        status: 'succeeded',
+        operation: 'request_generation',
+        nodeId: 'image-7',
+        proposalId: 'proposal-call-generate',
+        resultUrl: '/library/images/image-7.png',
+    }], config);
+
+    assert.equal(completed.status, 'completed');
+    assert.match(invocations[1].messages.at(-1).content, /image-7\.png/);
+    assert.match(invocations[1].messages.at(-1).content, /proposal-call-generate/);
+});
+
 test('server runtime factory executes through HTTP Transport and records a redacted trace', async () => {
     let authorization = '';
     const runtime = createCanvasChatModelGatewayRuntime({

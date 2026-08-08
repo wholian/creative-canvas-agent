@@ -165,6 +165,22 @@ const CANVAS_TOOLS = [
             },
         },
     })),
+    {
+        type: "function",
+        function: {
+            name: "request_image_generation",
+            description: "Request human approval to generate media for one existing image node. This pauses before any paid model call. Read the canvas snapshot first and use its exact node ID and snapshot version.",
+            parameters: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    node_id: { type: "string" },
+                    expected_snapshot_version: SNAPSHOT_VERSION_PROPERTY,
+                },
+                required: ["node_id", "expected_snapshot_version"],
+            },
+        },
+    },
 ];
 
 const GATEWAY_CANVAS_TOOLS = CANVAS_TOOLS.map(tool => ({
@@ -223,6 +239,21 @@ function validateCanvasToolCall(toolCall) {
                 return { toolCallId: toolCall.id, error: "delete_canvas_node requires node_id and expected_snapshot_version." };
             }
             return { toolCallId: toolCall.id, action: { type: "delete_node", toolCallId: toolCall.id, nodeId: args.node_id, expectedSnapshotVersion: version } };
+        }
+        if (name === "request_image_generation") {
+            if (typeof args.node_id !== "string" || !args.node_id || !version) {
+                return { toolCallId: toolCall.id, error: "request_image_generation requires node_id and expected_snapshot_version." };
+            }
+            return {
+                toolCallId: toolCall.id,
+                action: {
+                    type: "request_generation",
+                    generationType: "image",
+                    toolCallId: toolCall.id,
+                    nodeId: args.node_id,
+                    expectedSnapshotVersion: version,
+                },
+            };
         }
         if (name === "connect_canvas_nodes" || name === "disconnect_canvas_nodes") {
             if (typeof args.from_node_id !== "string" || !args.from_node_id || typeof args.to_node_id !== "string" || !args.to_node_id || !version) {
@@ -396,6 +427,8 @@ export async function completeCanvasToolAgent(
                     node_id: execution.nodeId,
                     connection_id: execution.connectionId,
                     deleted_connection_ids: execution.deletedConnectionIds,
+                    result_url: execution.resultUrl,
+                    proposal_id: execution.proposalId,
                 }),
             };
         }
