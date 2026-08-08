@@ -17,6 +17,7 @@ import {
     CanvasAction,
     CanvasActionExecution,
 } from '../hooks/useChatAgent';
+import { shouldSubmitChatMessage } from '../utils/chatInputKeyboard';
 
 // ============================================================================
 // TYPES
@@ -79,6 +80,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     // Refs
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const isComposingRef = useRef(false);
 
     // --- Effects ---
 
@@ -470,6 +472,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                         rows={1}
                         style={{ scrollbarWidth: 'none' }}
                         disabled={isLoading}
+                        onCompositionStart={() => {
+                            isComposingRef.current = true;
+                        }}
+                        onCompositionEnd={() => {
+                            isComposingRef.current = false;
+                        }}
                         onInput={(e) => {
                             const target = e.target as HTMLTextAreaElement;
                             target.style.height = 'auto';
@@ -478,7 +486,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                             target.style.overflowY = target.scrollHeight > 120 ? 'auto' : 'hidden';
                         }}
                         onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
+                            if (shouldSubmitChatMessage({
+                                key: e.key,
+                                shiftKey: e.shiftKey,
+                                nativeIsComposing: e.nativeEvent.isComposing,
+                                compositionActive: isComposingRef.current,
+                                keyCode: e.keyCode,
+                            })) {
                                 e.preventDefault();
                                 handleSend();
                             }
