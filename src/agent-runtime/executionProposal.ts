@@ -1,4 +1,5 @@
 import { createAgentCanvasSnapshot } from '../canvas-adapters/agentCanvasOperationBridge.ts';
+import type { AgentCanvasSnapshotNode } from '../canvas-adapters/agentCanvasOperationBridge.ts';
 import type { NodeData } from '../types.ts';
 
 export type ExecutionProposalStatus =
@@ -34,12 +35,12 @@ export interface ExecutionProposal {
 export interface ImageGenerationRequestActionLike {
     toolCallId: string;
     nodeId: string;
-    expectedSnapshotVersion: string;
+    expectedNodeVersion: string;
 }
 
 export type PrepareExecutionProposalResult =
     | { status: 'awaiting_approval'; proposal: ExecutionProposal }
-    | { status: 'failed'; errorCode: string; error: string; snapshotVersion: string };
+    | { status: 'failed'; errorCode: string; error: string; snapshotVersion: string; nodeVersion?: string; currentNode?: AgentCanvasSnapshotNode };
 
 const IMAGE_MODEL_NAMES: Record<string, string> = {
     'gemini-pro': 'Nano Banana Pro',
@@ -59,22 +60,25 @@ export function prepareImageGenerationProposal(
     canvasTitle: string,
 ): PrepareExecutionProposalResult {
     const snapshot = createAgentCanvasSnapshot(nodes, canvasTitle);
-    if (snapshot.snapshotVersion !== action.expectedSnapshotVersion) {
-        return {
-            status: 'failed',
-            errorCode: 'stale_canvas_snapshot',
-            error: 'Canvas changed after the Agent requested generation. Read a new snapshot and request approval again.',
-            snapshotVersion: snapshot.snapshotVersion,
-        };
-    }
-
     const node = nodes.find(candidate => candidate.id === action.nodeId);
+    const snapshotNode = snapshot.nodes.find(candidate => candidate.id === action.nodeId);
     if (!node) {
         return {
             status: 'failed',
             errorCode: 'node_not_found',
             error: `Canvas node not found: ${action.nodeId}.`,
             snapshotVersion: snapshot.snapshotVersion,
+        };
+    }
+    if (!snapshotNode) throw new Error(`Snapshot omitted canvas node: ${action.nodeId}.`);
+    if (snapshotNode.nodeVersion !== action.expectedNodeVersion) {
+        return {
+            status: 'failed',
+            errorCode: 'stale_node_snapshot',
+            error: 'The target node changed after the Agent requested generation. Re-check the current node and request approval again.',
+            snapshotVersion: snapshot.snapshotVersion,
+            nodeVersion: snapshotNode.nodeVersion,
+            currentNode: snapshotNode,
         };
     }
     if (node.type !== 'Image') {
@@ -122,7 +126,7 @@ export function prepareImageGenerationProposal(
             target: {
                 type: 'canvas_node',
                 id: node.id,
-                expectedRevision: snapshot.snapshotVersion,
+                expectedRevision: snapshotNode.nodeVersion,
             },
             display: {
                 title: 'Generate image?',

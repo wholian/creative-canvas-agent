@@ -28,7 +28,7 @@ test('image generation proposal exposes current node settings without executing'
     const result = prepareImageGenerationProposal({
         toolCallId: 'call-generate-1',
         nodeId: 'image-1',
-        expectedSnapshotVersion: snapshot.snapshotVersion,
+        expectedNodeVersion: snapshot.nodes[0].nodeVersion,
     }, nodes, 'Film');
 
     assert.equal(result.status, 'awaiting_approval');
@@ -41,16 +41,30 @@ test('image generation proposal exposes current node settings without executing'
     assert.equal(result.proposal.display.estimatedCost?.amount, 0.49);
 });
 
-test('image generation proposal rejects stale canvas state', () => {
+test('image generation proposal rejects stale target node content', () => {
+    const original = imageNode();
+    const originalVersion = createAgentCanvasSnapshot([original], 'Film').nodes[0].nodeVersion;
     const result = prepareImageGenerationProposal({
         toolCallId: 'call-stale',
         nodeId: 'image-1',
-        expectedSnapshotVersion: 'canvas-v1-old',
-    }, [imageNode()], 'Film');
+        expectedNodeVersion: originalVersion,
+    }, [imageNode({ prompt: 'A changed forest prompt' })], 'Film');
 
     assert.equal(result.status, 'failed');
     if (result.status !== 'failed') return;
-    assert.equal(result.errorCode, 'stale_canvas_snapshot');
+    assert.equal(result.errorCode, 'stale_node_snapshot');
+    assert.equal(result.currentNode?.prompt, 'A changed forest prompt');
+});
+
+test('image generation proposal ignores layout-only changes', () => {
+    const original = imageNode();
+    const expectedNodeVersion = createAgentCanvasSnapshot([original], 'Film').nodes[0].nodeVersion;
+    const moved = imageNode({ x: 999, y: -400 });
+    const result = prepareImageGenerationProposal({
+        toolCallId: 'call-moved', nodeId: 'image-1', expectedNodeVersion,
+    }, [moved], 'Film');
+
+    assert.equal(result.status, 'awaiting_approval');
 });
 
 test('image generation proposal rejects unsupported or incomplete targets', () => {
@@ -59,7 +73,7 @@ test('image generation proposal rejects unsupported or incomplete targets', () =
     const result = prepareImageGenerationProposal({
         toolCallId: 'call-video',
         nodeId: node.id,
-        expectedSnapshotVersion: snapshot.snapshotVersion,
+        expectedNodeVersion: snapshot.nodes[0].nodeVersion,
     }, [node], 'Film');
 
     assert.equal(result.status, 'failed');

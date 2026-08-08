@@ -23,7 +23,6 @@ export interface AgentAddNodeAction {
     modelName?: string;
     aspectRatio?: string;
     resolution?: string;
-    expectedSnapshotVersion?: string;
 }
 
 export interface AgentNodeUpdates {
@@ -40,7 +39,7 @@ export interface AgentUpdateNodeAction {
     type: 'update_node';
     toolCallId: string;
     nodeId: string;
-    expectedSnapshotVersion: string;
+    expectedNodeVersion: string;
     updates: AgentNodeUpdates;
 }
 
@@ -48,7 +47,7 @@ export interface AgentDeleteNodeAction {
     type: 'delete_node';
     toolCallId: string;
     nodeId: string;
-    expectedSnapshotVersion: string;
+    expectedNodeVersion: string;
 }
 
 export interface AgentConnectionAction {
@@ -56,7 +55,6 @@ export interface AgentConnectionAction {
     toolCallId: string;
     fromNodeId: string;
     toNodeId: string;
-    expectedSnapshotVersion: string;
 }
 
 export type AgentCanvasAction =
@@ -68,6 +66,7 @@ export type AgentCanvasAction =
 
 export interface AgentCanvasSnapshotNode {
     id: string;
+    nodeVersion: string;
     type: string;
     title: string;
     prompt: string;
@@ -96,6 +95,8 @@ export interface AgentCanvasExecution {
     snapshotVersion?: string;
     snapshot?: AgentCanvasSnapshot;
     nodeId?: string;
+    nodeVersion?: string;
+    currentNode?: AgentCanvasSnapshotNode;
     connectionId?: string;
     deletedConnectionIds?: string[];
     errorCode?: string;
@@ -142,9 +143,28 @@ function snapshotModel(node: NodeData): string {
     return node.model || '';
 }
 
+/**
+ * A lightweight optimistic-concurrency token for one node's creative meaning.
+ * Layout, transient execution status, and generated media are deliberately
+ * excluded so unrelated canvas activity cannot invalidate a content edit.
+ */
+export function createAgentNodeVersion(node: NodeData): string {
+    const semanticState = {
+        id: node.id,
+        type: String(node.type).toLowerCase(),
+        title: node.title || String(node.type),
+        prompt: node.prompt || '',
+        model: snapshotModel(node),
+        aspectRatio: node.aspectRatio || '',
+        resolution: node.resolution || '',
+    };
+    return `node-v1-${stableHash(JSON.stringify(semanticState))}`;
+}
+
 export function createAgentCanvasSnapshot(nodes: NodeData[], title: string): AgentCanvasSnapshot {
     const snapshotNodes = nodes.map(node => ({
         id: node.id,
+        nodeVersion: createAgentNodeVersion(node),
         type: String(node.type).toLowerCase(),
         title: node.title || String(node.type),
         prompt: node.prompt || '',
@@ -201,14 +221,14 @@ function failedExecutions(
     code: string,
     message: string,
     snapshotVersion: string,
-    snapshot?: AgentCanvasSnapshot,
+    currentNode?: AgentCanvasSnapshotNode,
 ): AgentCanvasExecution[] {
     return actions.map(action => ({
         toolCallId: action.toolCallId,
         status: 'failed',
         operation: operationName(action),
         snapshotVersion,
-        ...(snapshot ? { snapshot } : {}),
+        ...(currentNode ? { nodeId: currentNode.id, nodeVersion: currentNode.nodeVersion, currentNode } : {}),
         errorCode: code,
         error: message,
     }));
@@ -252,19 +272,20 @@ export async function applyAgentCanvasActions({
     }
 
     const writeActions = actions.filter((action): action is Exclude<AgentCanvasAction, AgentSnapshotAction> => action.type !== 'get_snapshot');
-    const stale = writeActions.find(action => action.type !== 'add_node'
-        && action.expectedSnapshotVersion !== beforeSnapshot.snapshotVersion);
-    const staleAdd = writeActions.find(action => action.type === 'add_node'
-        && action.expectedSnapshotVersion !== undefined
-        && action.expectedSnapshotVersion !== beforeSnapshot.snapshotVersion);
-    if (stale || staleAdd) {
+    const staleAction = writeActions.find(action => {
+        if (action.type !== 'update_node' && action.type !== 'delete_node') return false;
+        const currentNode = beforeSnapshot.nodes.find(node => node.id === action.nodeId);
+        return currentNode !== undefined && currentNode.nodeVersion !== action.expectedNodeVersion;
+    });
+    if (staleAction && (staleAction.type === 'update_node' || staleAction.type === 'delete_node')) {
+        const currentNode = beforeSnapshot.nodes.find(node => node.id === staleAction.nodeId);
         return {
             executions: failedExecutions(
                 actions,
-                'stale_canvas_snapshot',
-                'Canvas changed after the Agent read it. Re-check the current snapshot returned with this result and retry once if the target is still unambiguous.',
+                'stale_node_snapshot',
+                'The target node changed after the Agent read it. Re-check the current node returned with this result and retry once if it is still the intended target.',
                 beforeSnapshot.snapshotVersion,
-                beforeSnapshot,
+                currentNode,
             ),
             nodes: structuredClone(nodes),
             changed: false,
@@ -381,12 +402,15 @@ export async function applyAgentCanvasActions({
     return {
         executions: actions.map((action, index) => {
             const data = results[index]?.data || {};
+            const nodeId = typeof data.nodeId === 'string' ? data.nodeId : undefined;
+            const changedNode = nodeId ? afterSnapshot.nodes.find(node => node.id === nodeId) : undefined;
             return {
                 toolCallId: action.toolCallId,
                 status: 'succeeded',
                 operation: operationName(action),
                 snapshotVersion: afterSnapshot.snapshotVersion,
-                ...(typeof data.nodeId === 'string' ? { nodeId: data.nodeId } : {}),
+                ...(nodeId ? { nodeId } : {}),
+                ...(changedNode ? { nodeVersion: changedNode.nodeVersion } : {}),
                 ...(typeof data.connectionId === 'string' ? { connectionId: data.connectionId } : {}),
                 ...(Array.isArray(data.deletedConnectionIds) ? { deletedConnectionIds: data.deletedConnectionIds as string[] } : {}),
             };

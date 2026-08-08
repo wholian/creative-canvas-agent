@@ -69,6 +69,7 @@ test('snapshot reads expose lightweight IDs and omit generated media payloads', 
 
     assert.equal(result.changed, false);
     assert.equal(result.executions[0].snapshot?.nodes[0].id, nodes[0].id);
+    assert.match(result.executions[0].snapshot?.nodes[0].nodeVersion || '', /^node-v1-/);
     assert.doesNotMatch(JSON.stringify(result.executions[0].snapshot), /SECRET|resultUrl|base64/);
     assert.equal(result.snapshotVersion, createAgentCanvasSnapshot(nodes, 'Test').snapshotVersion);
 });
@@ -80,10 +81,10 @@ test('Agent can update and delete an exact node after reading its snapshot', asy
         ...base,
     });
     const nodeId = added.addedNodes[0].id;
-    const version = createAgentCanvasSnapshot(added.addedNodes, 'Test').snapshotVersion;
+    const version = createAgentCanvasSnapshot(added.addedNodes, 'Test').nodes[0].nodeVersion;
     const updated = await applyAgentCanvasActions({
         actions: [{
-            type: 'update_node', toolCallId: 'update-red', nodeId, expectedSnapshotVersion: version,
+            type: 'update_node', toolCallId: 'update-red', nodeId, expectedNodeVersion: version,
             updates: { prompt: 'green plane', x: 42 },
         }],
         nodes: added.addedNodes,
@@ -97,7 +98,7 @@ test('Agent can update and delete an exact node after reading its snapshot', asy
     const deleted = await applyAgentCanvasActions({
         actions: [{
             type: 'delete_node', toolCallId: 'delete-green', nodeId,
-            expectedSnapshotVersion: updated.snapshotVersion,
+            expectedNodeVersion: updated.executions[0].nodeVersion as string,
         }],
         nodes: updated.nodes,
         ...base,
@@ -106,30 +107,59 @@ test('Agent can update and delete an exact node after reading its snapshot', asy
     assert.equal(deleted.nodes.length, 0);
 });
 
-test('stale canvas writes fail without changing browser state', async () => {
+test('unrelated layout changes do not invalidate a semantic node edit', async () => {
+    const added = await applyAgentCanvasActions({
+        actions: [
+            { type: 'add_node', nodeType: 'image', prompt: 'red plane', toolCallId: 'add-layout-target' },
+            { type: 'add_node', nodeType: 'image', prompt: 'other node', toolCallId: 'add-layout-other' },
+        ],
+        nodes: [],
+        ...base,
+    });
+    const targetId = added.executions[0].nodeId as string;
+    const expectedNodeVersion = createAgentCanvasSnapshot(added.nodes, 'Test').nodes
+        .find(node => node.id === targetId)?.nodeVersion as string;
+    const movedNodes = added.nodes.map(node => ({ ...node, x: node.x + 37, y: node.y - 44 }));
+    const updated = await applyAgentCanvasActions({
+        actions: [{
+            type: 'update_node', toolCallId: 'update-after-layout', nodeId: targetId,
+            expectedNodeVersion, updates: { prompt: 'green plane' },
+        }],
+        nodes: movedNodes,
+        ...base,
+    });
+
+    assert.equal(updated.executions[0].status, 'succeeded');
+    assert.equal(updated.nodes.find(node => node.id === targetId)?.prompt, 'green plane');
+    assert.equal(updated.nodes.find(node => node.id === targetId)?.x, movedNodes.find(node => node.id === targetId)?.x);
+});
+
+test('stale target node content fails without changing browser state', async () => {
     const added = await applyAgentDraftActions({
         actions: [{ type: 'add_node', nodeType: 'image', prompt: 'red plane', toolCallId: 'add-stale' }],
         nodes: [],
         ...base,
     });
+    const oldVersion = createAgentCanvasSnapshot(added.addedNodes, 'Test').nodes[0].nodeVersion;
+    const changedNodes = added.addedNodes.map(node => ({ ...node, prompt: 'blue plane' }));
     const result = await applyAgentCanvasActions({
         actions: [{
             type: 'delete_node', toolCallId: 'delete-stale', nodeId: added.addedNodes[0].id,
-            expectedSnapshotVersion: 'canvas-v1-old',
+            expectedNodeVersion: oldVersion,
         }],
-        nodes: added.addedNodes,
+        nodes: changedNodes,
         ...base,
     });
 
     assert.equal(result.executions[0].status, 'failed');
-    assert.equal(result.executions[0].errorCode, 'stale_canvas_snapshot');
-    assert.equal(result.executions[0].snapshotVersion, createAgentCanvasSnapshot(added.addedNodes, 'Test').snapshotVersion);
-    assert.equal(result.executions[0].snapshot?.nodes[0].id, added.addedNodes[0].id);
-    assert.equal(result.executions[0].snapshot?.nodes[0].prompt, 'red plane');
-    assert.deepEqual(result.nodes, added.addedNodes);
+    assert.equal(result.executions[0].errorCode, 'stale_node_snapshot');
+    assert.equal(result.executions[0].currentNode?.id, added.addedNodes[0].id);
+    assert.equal(result.executions[0].currentNode?.prompt, 'blue plane');
+    assert.notEqual(result.executions[0].nodeVersion, oldVersion);
+    assert.deepEqual(result.nodes, changedNodes);
 });
 
-test('Agent connects and disconnects exact nodes using current snapshot versions', async () => {
+test('Agent connects and disconnects exact current nodes without a canvas-wide version', async () => {
     const added = await applyAgentCanvasActions({
         actions: [
             { type: 'add_node', nodeType: 'image', prompt: 'source', toolCallId: 'add-source' },
@@ -142,7 +172,6 @@ test('Agent connects and disconnects exact nodes using current snapshot versions
     const connected = await applyAgentCanvasActions({
         actions: [{
             type: 'connect_nodes', toolCallId: 'connect-1', fromNodeId: sourceId, toNodeId: targetId,
-            expectedSnapshotVersion: added.snapshotVersion,
         }],
         nodes: added.nodes,
         ...base,
@@ -152,7 +181,6 @@ test('Agent connects and disconnects exact nodes using current snapshot versions
     const disconnected = await applyAgentCanvasActions({
         actions: [{
             type: 'disconnect_nodes', toolCallId: 'disconnect-1', fromNodeId: sourceId, toNodeId: targetId,
-            expectedSnapshotVersion: connected.snapshotVersion,
         }],
         nodes: connected.nodes,
         ...base,

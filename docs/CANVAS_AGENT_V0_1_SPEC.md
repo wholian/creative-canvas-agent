@@ -621,11 +621,11 @@ get_generation_status
 | --- | --- | --- |
 | `get_canvas_snapshot` | 读取当前画布的轻量结构 | 无 |
 | `add_canvas_node` | 新增 Image / Video 草稿 | `node_type`、`prompt`，模型参数选填 |
-| `update_canvas_node` | 修改一个既有节点 | `node_id`、`expected_snapshot_version`、`patch` |
-| `delete_canvas_node` | 删除节点并级联删除关联连接 | `node_id`、`expected_snapshot_version` |
-| `connect_canvas_nodes` | 建立父节点到子节点的 input 连接 | `from_node_id`、`to_node_id`、`expected_snapshot_version` |
-| `disconnect_canvas_nodes` | 删除指定父子节点间的 input 连接 | `from_node_id`、`to_node_id`、`expected_snapshot_version` |
-| `request_image_generation` | 为已有图片节点提出一次生成执行提案 | `node_id`、`expected_snapshot_version` |
+| `update_canvas_node` | 修改一个既有节点 | `node_id`、`expected_node_version`、`patch` |
+| `delete_canvas_node` | 删除节点并级联删除关联连接 | `node_id`、`expected_node_version` |
+| `connect_canvas_nodes` | 建立父节点到子节点的 input 连接 | `from_node_id`、`to_node_id` |
+| `disconnect_canvas_nodes` | 删除指定父子节点间的 input 连接 | `from_node_id`、`to_node_id` |
+| `request_image_generation` | 为已有图片节点提出一次生成执行提案 | `node_id`、`expected_node_version` |
 
 `update_canvas_node.patch` v0.1 只允许以下字段：
 
@@ -654,7 +654,9 @@ Agent 每轮不应默认接收全部 Base64、完整视频或无限历史。Snap
 
 Snapshot 裁剪策略属于实现细节，但 MUST 保证模型基于当前 revision 工作。
 
-当前 React 画布仍是 UI 权威状态，尚未长期持有 Domain revision。因此过渡期 Snapshot 使用确定性的 `snapshot_version`：它由 Agent 可见节点字段和显式连接排序后计算，功能等价于乐观并发版本。
+当前 React 画布仍是 UI 权威状态，尚未长期持有 Domain revision。因此过渡期 Snapshot 使用确定性的 `snapshot_version` 标识读取到的整体状态；该值只用于诊断和辨识快照，不再作为所有写操作共享的全局写锁。
+
+每个节点同时返回按需计算的 `nodeVersion`。它只包含节点 ID、类型、标题、Prompt、模型、比例和分辨率，不包含位置、瞬时生成状态、结果 URL 或其他节点信息。`nodeVersion` 无需持久化，也不保存历史；执行写操作时根据当前节点重新计算并比较即可。
 
 Snapshot 返回：
 
@@ -665,6 +667,7 @@ Snapshot 返回：
   "nodes": [
     {
       "id": "node-id",
+      "nodeVersion": "node-v1-...",
       "type": "image",
       "title": "AI Image Draft",
       "prompt": "...",
@@ -683,7 +686,9 @@ Snapshot 返回：
 
 Snapshot MUST NOT 返回 Base64、完整媒体、API Key、编辑器画布数据或完整 Artifact 内容。
 
-除新增节点外，所有写工具 MUST 回传最近一次 Snapshot 的 `expected_snapshot_version`。浏览器执行前重新计算版本；不一致时返回 `stale_canvas_snapshot`，不得在旧状态上继续修改。模型收到该 Tool Result 后只能重新读取或停止。
+修改、删除和生成已有节点时，工具 MUST 回传该节点最近一次读取到的 `expected_node_version`。浏览器执行前重新计算目标节点版本；不一致时返回 `stale_node_snapshot` 和当前轻量节点，不得静默覆盖。模型可以在确认目标仍明确后使用返回的最新节点版本重试一次。
+
+新增节点依靠 `operationId` 保证幂等，不要求版本。连接操作依靠端点存在性和连接当前是否存在进行确定性校验，不要求全局 Snapshot 版本。节点位置、其他节点变化和生成结果状态不得阻止当前节点的内容编辑。
 
 ### 9.3 标准工具循环
 
@@ -699,7 +704,7 @@ Snapshot MUST NOT 返回 Base64、完整媒体、API Key、编辑器画布数据
 
 约束：
 
-- MUST 支持一轮多个 Tool Call；同一响应中的多个写操作以一个原子 Batch 顺序执行，共用执行前的 `expected_snapshot_version`。
+- MUST 支持一轮多个 Tool Call；同一响应中的多个写操作以一个原子 Batch 顺序执行，每个目标节点分别携带自己的 `expected_node_version`。
 - 读取与写入不得混在同一 Tool Call Batch；模型必须先取得读取结果，再在下一轮提出写入。
 - 有依赖的操作 MUST 跨轮串行，例如先创建节点并取得真实 ID，再使用其 ID 建立连接。
 - 最大工具循环次数确认为 5；浏览器和服务端都必须限制，超过后返回结构化错误并停止。

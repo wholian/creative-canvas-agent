@@ -1,6 +1,7 @@
 import type {
     AgentCanvasAction,
     AgentCanvasExecution,
+    AgentCanvasSnapshotNode,
 } from '../canvas-adapters/agentCanvasOperationBridge.ts';
 import type { ExecutionProposal } from './executionProposal.ts';
 import type { GenerationJobStatus } from '../generation-domain/index.ts';
@@ -10,7 +11,7 @@ export interface RequestImageGenerationAction {
     generationType: 'image';
     toolCallId: string;
     nodeId: string;
-    expectedSnapshotVersion: string;
+    expectedNodeVersion: string;
     approvalDecision?: 'approved';
 }
 
@@ -21,6 +22,8 @@ export interface ImageGenerationExecution {
     status: 'awaiting_approval' | 'succeeded' | 'failed';
     operation: 'request_generation';
     nodeId?: string;
+    nodeVersion?: string;
+    currentNode?: AgentCanvasSnapshotNode;
     snapshotVersion?: string;
     proposalId?: string;
     proposal?: ExecutionProposal;

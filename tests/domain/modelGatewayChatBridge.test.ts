@@ -55,6 +55,13 @@ test('Pi Runtime executes a canvas tool and returns the real node ID to the mode
     assert.deepEqual(addNodeSchema.properties.image_model.enum, ['gpt-image-1.5', 'gemini-pro', 'kling-v1-5', 'kling-v2-1']);
     assert.deepEqual(addNodeSchema.properties.quality.enum, ['Auto', '1K', '2K', '4K']);
     assert.equal(JSON.stringify(addNodeSchema).includes('"const"'), false);
+    assert.equal('expected_snapshot_version' in addNodeSchema.properties, false);
+    const updateNodeSchema = invocations[0].tools.find(tool => tool.name === 'update_canvas_node').inputSchema;
+    assert.deepEqual(updateNodeSchema.required, ['node_id', 'expected_node_version', 'patch']);
+    const connectNodesSchema = invocations[0].tools.find(tool => tool.name === 'connect_canvas_nodes').inputSchema;
+    assert.deepEqual(connectNodesSchema.required, ['from_node_id', 'to_node_id']);
+    const generationSchema = invocations[0].tools.find(tool => tool.name === 'request_image_generation').inputSchema;
+    assert.deepEqual(generationSchema.required, ['node_id', 'expected_node_version']);
     assert.deepEqual(invocations[1].messages.map(message => message.role).slice(-2), ['assistant', 'tool']);
     assert.match(invocations[1].messages.at(-1).content, /node-real-123/);
     assert.equal(invocations[1].messages.at(-1).toolCallId, 'call-add-1');
@@ -69,7 +76,7 @@ test('Pi Runtime owns multiple tool rounds instead of exposing a serialized cont
         traceId: 'trace-delete',
         message: { role: 'assistant', content: '', toolCalls: [{
             id: 'call-delete', name: 'delete_canvas_node',
-            arguments: { node_id: 'node-red', expected_snapshot_version: 'canvas-v1-current' },
+            arguments: { node_id: 'node-red', expected_node_version: 'node-v1-current' },
         }] },
     }, {
         traceId: 'trace-final',
@@ -83,11 +90,11 @@ test('Pi Runtime owns multiple tool rounds instead of exposing a serialized cont
 
     const second = await runtime.completeTool(first.id, [{
         toolCallId: 'call-read', status: 'succeeded', operation: 'snapshot', snapshotVersion: 'canvas-v1-current',
-        snapshot: { snapshotVersion: 'canvas-v1-current', title: 'Test', nodes: [{ id: 'node-red', title: '红色飞机' }], connections: [] },
+        snapshot: { snapshotVersion: 'canvas-v1-current', title: 'Test', nodes: [{ id: 'node-red', nodeVersion: 'node-v1-current', title: '红色飞机' }], connections: [] },
     }]);
     assert.equal(second.status, 'awaiting_tool');
     assert.deepEqual(second.action, {
-        type: 'delete_node', toolCallId: 'call-delete', nodeId: 'node-red', expectedSnapshotVersion: 'canvas-v1-current',
+        type: 'delete_node', toolCallId: 'call-delete', nodeId: 'node-red', expectedNodeVersion: 'node-v1-current',
     });
 
     const completed = await runtime.completeTool(first.id, [{
@@ -98,14 +105,14 @@ test('Pi Runtime owns multiple tool rounds instead of exposing a serialized cont
     assert.equal(invocations.length, 3);
 });
 
-test('stale canvas result gives the Agent the current snapshot for an automatic retry', async () => {
+test('stale node result gives the Agent the current node for an automatic retry', async () => {
     const invocations: Array<Record<string, any>> = [];
     const runtime = runtimeFor([{
         traceId: 'trace-stale-write',
         message: { role: 'assistant', content: '', toolCalls: [{
             id: 'call-update-stale', name: 'update_canvas_node',
             arguments: {
-                node_id: 'node-plane', expected_snapshot_version: 'canvas-v1-old',
+                node_id: 'node-plane', expected_node_version: 'node-v1-old',
                 patch: { prompt: 'green paper plane' },
             },
         }] },
@@ -114,7 +121,7 @@ test('stale canvas result gives the Agent the current snapshot for an automatic 
         message: { role: 'assistant', content: '', toolCalls: [{
             id: 'call-update-retry', name: 'update_canvas_node',
             arguments: {
-                node_id: 'node-plane', expected_snapshot_version: 'canvas-v1-current',
+                node_id: 'node-plane', expected_node_version: 'node-v1-current',
                 patch: { prompt: 'green paper plane' },
             },
         }] },
@@ -128,23 +135,20 @@ test('stale canvas result gives the Agent the current snapshot for an automatic 
 
     const retry = await runtime.completeTool(started.id, [{
         toolCallId: 'call-update-stale', status: 'failed', operation: 'update',
-        errorCode: 'stale_canvas_snapshot', error: 'Canvas changed.',
+        errorCode: 'stale_node_snapshot', error: 'Target node changed.',
         snapshotVersion: 'canvas-v1-current',
-        snapshot: {
-            snapshotVersion: 'canvas-v1-current', title: 'Test',
-            nodes: [{ id: 'node-plane', title: '红色纸飞机', prompt: 'red paper plane' }],
-            connections: [],
-        },
+        nodeId: 'node-plane', nodeVersion: 'node-v1-current',
+        currentNode: { id: 'node-plane', nodeVersion: 'node-v1-current', title: '红色纸飞机', prompt: 'red paper plane' },
     }]);
 
     assert.equal(retry.status, 'awaiting_tool');
     assert.equal(retry.action?.type, 'update_node');
     if (retry.action?.type === 'update_node') {
-        assert.equal(retry.action.expectedSnapshotVersion, 'canvas-v1-current');
+        assert.equal(retry.action.expectedNodeVersion, 'node-v1-current');
     }
     const recoveryToolResult = invocations[1].messages.at(-1).content;
-    assert.match(recoveryToolResult, /stale_canvas_snapshot/);
-    assert.match(recoveryToolResult, /canvas-v1-current/);
+    assert.match(recoveryToolResult, /stale_node_snapshot/);
+    assert.match(recoveryToolResult, /node-v1-current/);
     assert.match(recoveryToolResult, /node-plane/);
     assert.match(recoveryToolResult, /Do not ask the user to wait or retry/);
 
@@ -162,7 +166,7 @@ test('image generation pauses in Runtime for approval before any paid execution'
         traceId: 'trace-generation-request',
         message: { role: 'assistant', content: '', toolCalls: [{
             id: 'call-generate', name: 'request_image_generation',
-            arguments: { node_id: 'image-7', expected_snapshot_version: 'canvas-v1-ready' },
+            arguments: { node_id: 'image-7', expected_node_version: 'node-v1-ready' },
         }] },
     }, {
         traceId: 'trace-generation-result',
@@ -209,7 +213,7 @@ test('rejecting image approval returns a tool result without executing generatio
         traceId: 'trace-reject-request',
         message: { role: 'assistant', content: '', toolCalls: [{
             id: 'call-reject', name: 'request_image_generation',
-            arguments: { node_id: 'image-reject', expected_snapshot_version: 'canvas-v1-ready' },
+            arguments: { node_id: 'image-reject', expected_node_version: 'node-v1-ready' },
         }] },
     }, {
         traceId: 'trace-reject-final',

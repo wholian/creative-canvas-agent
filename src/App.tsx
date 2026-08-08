@@ -207,6 +207,8 @@ export default function App() {
           operation: 'request_generation',
           nodeId: action.nodeId,
           snapshotVersion: prepared.snapshotVersion,
+          nodeVersion: prepared.nodeVersion,
+          currentNode: prepared.currentNode,
           errorCode: prepared.errorCode,
           error: prepared.error,
         }];
@@ -229,7 +231,7 @@ export default function App() {
           status: 'awaiting_approval',
           operation: 'request_generation',
           nodeId: action.nodeId,
-          snapshotVersion: action.expectedSnapshotVersion,
+          nodeVersion: action.expectedNodeVersion,
           proposalId: mockProposal.proposalId,
           proposal: mockProposal,
         }];
@@ -279,6 +281,7 @@ export default function App() {
         status: 'succeeded',
         operation: 'request_generation',
         nodeId: action.nodeId,
+        nodeVersion: prepared.proposal.target.expectedRevision,
         proposalId: prepared.proposal.proposalId,
         generationJobId: job.id,
         generationJobStatus: job.status,

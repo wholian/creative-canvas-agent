@@ -31,9 +31,9 @@ const IMAGE_MODEL_SETTINGS = {
     },
 };
 
-const SNAPSHOT_VERSION = Type.String({
+const NODE_VERSION = Type.String({
     minLength: 1,
-    description: 'The exact snapshot_version returned by get_canvas_snapshot.',
+    description: 'The exact nodeVersion returned for this node by get_canvas_snapshot.',
 });
 
 function textResult(value) {
@@ -51,6 +51,7 @@ function executionResult(execution) {
             snapshot_version: execution.snapshotVersion,
             snapshot: execution.snapshot,
             node_id: execution.nodeId,
+            node_version: execution.nodeVersion,
             connection_id: execution.connectionId,
             deleted_connection_ids: execution.deletedConnectionIds,
             result_url: execution.resultUrl,
@@ -65,10 +66,12 @@ function executionResult(execution) {
         code: execution?.errorCode,
         error: execution?.error || 'The browser did not confirm this canvas operation.',
         snapshot_version: execution?.snapshotVersion,
-        snapshot: execution?.snapshot,
-        ...(execution?.errorCode === 'stale_canvas_snapshot' ? {
+        node_id: execution?.nodeId,
+        node_version: execution?.nodeVersion,
+        current_node: execution?.currentNode,
+        ...(execution?.errorCode === 'stale_node_snapshot' ? {
             recoverable: true,
-            recovery: 'Re-check the returned current snapshot. If the intended target is still explicit and unambiguous, retry the requested operation once with this snapshot_version. Do not ask the user to wait or retry.',
+            recovery: 'Re-check the returned current_node. If it is still the intended target, retry the requested operation once with this node_version. Do not ask the user to wait or retry.',
         } : {}),
     });
 }
@@ -210,12 +213,10 @@ export class CreativeAgentRuntime {
                     image_model: Type.Optional(Type.String({ enum: Object.keys(IMAGE_MODEL_SETTINGS) })),
                     aspect_ratio: Type.Optional(Type.String()),
                     quality: Type.Optional(Type.String({ enum: ['Auto', '1K', '2K', '4K'] })),
-                    expected_snapshot_version: Type.Optional(SNAPSHOT_VERSION),
                 }, { additionalProperties: false }),
                 (toolCallId, args) => {
                     const action = {
                         type: 'add_node', nodeType: args.node_type, prompt: args.prompt, toolCallId,
-                        ...(args.expected_snapshot_version ? { expectedSnapshotVersion: args.expected_snapshot_version } : {}),
                     };
                     if (args.node_type === 'image') {
                         const imageModel = args.image_model || 'gemini-pro';
@@ -235,7 +236,7 @@ export class CreativeAgentRuntime {
                 'Update supported editable fields on one existing node.',
                 Type.Object({
                     node_id: Type.String({ minLength: 1 }),
-                    expected_snapshot_version: SNAPSHOT_VERSION,
+                    expected_node_version: NODE_VERSION,
                     patch: Type.Object({
                         title: Type.Optional(Type.String()), prompt: Type.Optional(Type.String()),
                         x: Type.Optional(Type.Number()), y: Type.Optional(Type.Number()),
@@ -245,33 +246,33 @@ export class CreativeAgentRuntime {
                 }, { additionalProperties: false }),
                 (toolCallId, args) => ({
                     type: 'update_node', toolCallId, nodeId: args.node_id,
-                    expectedSnapshotVersion: args.expected_snapshot_version,
+                    expectedNodeVersion: args.expected_node_version,
                     updates: Object.fromEntries(Object.entries(args.patch).map(([key, value]) => [key === 'aspect_ratio' ? 'aspectRatio' : key, value])),
                 }),
             ),
             externalTool(
                 'delete_canvas_node',
                 'Delete one explicitly identified existing node.',
-                Type.Object({ node_id: Type.String({ minLength: 1 }), expected_snapshot_version: SNAPSHOT_VERSION }, { additionalProperties: false }),
-                (toolCallId, args) => ({ type: 'delete_node', toolCallId, nodeId: args.node_id, expectedSnapshotVersion: args.expected_snapshot_version }),
+                Type.Object({ node_id: Type.String({ minLength: 1 }), expected_node_version: NODE_VERSION }, { additionalProperties: false }),
+                (toolCallId, args) => ({ type: 'delete_node', toolCallId, nodeId: args.node_id, expectedNodeVersion: args.expected_node_version }),
             ),
             externalTool(
                 'connect_canvas_nodes',
                 'Connect one existing parent node to one existing child node.',
-                Type.Object({ from_node_id: Type.String({ minLength: 1 }), to_node_id: Type.String({ minLength: 1 }), expected_snapshot_version: SNAPSHOT_VERSION }, { additionalProperties: false }),
-                (toolCallId, args) => ({ type: 'connect_nodes', toolCallId, fromNodeId: args.from_node_id, toNodeId: args.to_node_id, expectedSnapshotVersion: args.expected_snapshot_version }),
+                Type.Object({ from_node_id: Type.String({ minLength: 1 }), to_node_id: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+                (toolCallId, args) => ({ type: 'connect_nodes', toolCallId, fromNodeId: args.from_node_id, toNodeId: args.to_node_id }),
             ),
             externalTool(
                 'disconnect_canvas_nodes',
                 'Disconnect one existing parent node from one existing child node.',
-                Type.Object({ from_node_id: Type.String({ minLength: 1 }), to_node_id: Type.String({ minLength: 1 }), expected_snapshot_version: SNAPSHOT_VERSION }, { additionalProperties: false }),
-                (toolCallId, args) => ({ type: 'disconnect_nodes', toolCallId, fromNodeId: args.from_node_id, toNodeId: args.to_node_id, expectedSnapshotVersion: args.expected_snapshot_version }),
+                Type.Object({ from_node_id: Type.String({ minLength: 1 }), to_node_id: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+                (toolCallId, args) => ({ type: 'disconnect_nodes', toolCallId, fromNodeId: args.from_node_id, toNodeId: args.to_node_id }),
             ),
             externalTool(
                 'request_image_generation',
                 'Request human approval before generating media for one existing image node.',
-                Type.Object({ node_id: Type.String({ minLength: 1 }), expected_snapshot_version: SNAPSHOT_VERSION }, { additionalProperties: false }),
-                (toolCallId, args) => ({ type: 'request_generation', generationType: 'image', toolCallId, nodeId: args.node_id, expectedSnapshotVersion: args.expected_snapshot_version }),
+                Type.Object({ node_id: Type.String({ minLength: 1 }), expected_node_version: NODE_VERSION }, { additionalProperties: false }),
+                (toolCallId, args) => ({ type: 'request_generation', generationType: 'image', toolCallId, nodeId: args.node_id, expectedNodeVersion: args.expected_node_version }),
             ),
         ];
     }
