@@ -124,9 +124,8 @@ Agent Bridge
         ↓
 Creative Agent Runtime
   ├─ Pi Agent Core Adapter
-  ├─ Context Transform
-  ├─ Tool Loop / Stop Policy
-  └─ Agent Event Stream
+  ├─ Tool Loop（最多 5 轮）
+  └─ Pending Approval
         ↓
 Unified Model Gateway
   ├─ Model Registry
@@ -167,12 +166,11 @@ v0.1 采用以下官方包：
 Pi 的职责仅限于：
 
 - Agent Loop；
-- LLM 流式消息；
 - Tool 参数校验与执行调度；
 - Tool Result 回传；
-- Agent 事件；
-- Abort、Steering 与 Follow-up；
-- 上下文转换、停止钩子与工具前后钩子。
+- 在模型与本项目 Runtime 之间传递消息。
+
+第一阶段只使用以上三项能力。流式消息、Abort、Steering、Follow-up、上下文压缩和复杂停止钩子均后置，不为了展示框架能力提前接入。
 
 Pi 不负责：
 
@@ -185,16 +183,14 @@ Pi 不负责：
 
 ### 5.3 CreativeAgentRuntime 接口
 
-项目 MUST 用自己的接口封装 Pi：
+项目 MUST 用自己的最小接口封装 Pi。第一阶段只解决“启动一轮、暂停审批、恢复执行、读取当前状态”：
 
 ```ts
 interface CreativeAgentRuntime {
-  start(input: AgentTurnInput): AsyncIterable<CreativeAgentEvent>;
-  steer(message: AgentUserMessage): Promise<void>;
-  followUp(message: AgentUserMessage): Promise<void>;
-  abort(): Promise<void>;
-  waitForIdle(): Promise<void>;
-  getState(): CreativeAgentState;
+  startTurn(input: AgentTurnInput): Promise<AgentTurn>;
+  resolveApproval(proposalId: string, decision: "approved" | "rejected"): Promise<AgentTurn>;
+  completeTool(toolCallId: string, result: CanvasOperationResult | GenerationResult): Promise<AgentTurn>;
+  getTurn(turnId: string): AgentTurn | undefined;
 }
 ```
 
@@ -212,248 +208,95 @@ PiCreativeAgentRuntime implements CreativeAgentRuntime
 FakeCreativeAgentRuntime implements CreativeAgentRuntime
 ```
 
-这样领域测试、HTTP 契约测试和浏览器测试无需真实模型即可执行。
+这样 Runtime 测试无需真实模型即可执行。`steer`、`followUp`、`abort`、事件流和持久化接口等能力在出现真实需求后再扩展，不进入第一阶段。
 
-### 5.4 Agent Runtime v0.1 设计提案（待审核）
+### 5.4 Runtime 的最小职责与领域边界（待审核）
 
-本节记录 2026-08-08 提出的 Runtime 设计方案。除第 2 节已经确认的原则外，本节中的部署位置、通信方式和持久化实现仍属于**待审核提案**，审核通过前不得作为已确认结论实施。
+Runtime 是流程协调器，不是新的业务领域。现有领域继续拥有自己的对象：
 
-Runtime 不是新的画布领域层或模型供应商 SDK，而是产品自己的 Agent 运行中枢，负责：
+| 现有模块 | 已有对象 | Runtime 如何使用 |
+| --- | --- | --- |
+| Canvas Domain | `CanvasProject`、`CanvasNode`、`CanvasConnection`、`CanvasOperation` | 只读取 Snapshot、提交 Operation、接收 Result |
+| Generation Domain | `GenerationJob`、`Artifact` | 只保存或传递已有 ID，不重新定义 |
+| Model Gateway | `Model`、`Provider`、`Invocation`、`Trace` | 只提交统一模型请求、接收标准结果 |
+| Chat Session | 对话消息与 Session | 继续复用，不新建 AgentSession |
 
-- 驱动单 Agent 的模型循环和原生 Tool Call；
-- 管理一次 Agent Turn 的状态与最大循环次数；
-- 在高成本或高风险操作前暂停并等待人工确认；
-- 调度客户端或服务端工具，并回传真实 Tool Result；
-- 向 UI 输出稳定、可重放的运行事件；
-- 提供幂等、过期状态校验、Abort、Steering 和失败停止机制。
-
-Runtime 不负责：
-
-- 作为画布数据的 Source of Truth；
-- 绕过 Canvas Operation 直接修改 React State；
-- 拼装供应商 API 协议；
-- 代替 Artifact、GenerationJob 或 Model Gateway；
-- 多 Agent Handoff 和长期创作记忆。
-
-推荐 Runtime 运行在服务端。当前画布仍由浏览器持有即时权威状态，因此画布工具采用远程客户端执行：
-
-```text
-Runtime 发出 tool.execution_requested
-→ 浏览器调用 Canvas Operation Runner
-→ 浏览器返回真实 Operation Result
-→ Runtime 追加 role=tool
-→ 模型继续运行
-```
-
-图片和视频等供应商调用最终应由服务端执行。迁移期允许现有浏览器 Generation Handler 作为临时 Client Tool Executor，但不得成为最终架构。
-
-### 5.5 Runtime 核心对象（待审核）
-
-Runtime 必须区分以下对象，不得用聊天消息或单个 `isLoading` 代替：
-
-| 对象 | 作用 |
-| --- | --- |
-| `AgentSession` | 一段持续对话 |
-| `AgentTurn` | 用户发出的一次任务及其生命周期 |
-| `ToolCall` | 模型提出的一次原生工具调用 |
-| `ExecutionProposal` | 等待用户批准的执行方案 |
-| `ToolExecution` | 工具的真实执行记录 |
-| `GenerationJob` | 图片、视频等外部生成任务 |
-
-对象关系：
-
-```text
-AgentSession
-└── AgentTurn
-    ├── ToolCall
-    │   ├── ExecutionProposal
-    │   └── ToolExecution
-    └── CreativeAgentEvent[]
-```
-
-这些对象至少使用以下稳定标识：
-
-```text
-sessionId
-turnId
-toolCallId
-proposalId
-executionId
-jobId
-```
-
-### 5.6 Runtime 状态机（待审核）
-
-`AgentTurn` 状态：
-
-```text
-idle
-→ running
-→ awaiting_client_tool / awaiting_approval / executing
-→ running
-→ completed / failed / aborted
-```
-
-单个工具执行状态：
-
-```text
-proposed
-→ awaiting_approval
-→ executing
-→ succeeded / failed / rejected
-```
-
-约束：
-
-- 一个 Session 同一时刻最多有一个主动运行的 Turn；Follow-up 进入队列。
-- 最大 Tool Loop 暂沿用当前的 5 轮限制，是否作为最终值仍需审核。
-- `awaiting_approval` 期间不得向模型伪造成功 Tool Result。
-- 重复批准同一 `proposalId` 不得产生第二次外部调用。
-- Provider 超时且结果未知时不得自动重试高成本任务。
-
-### 5.7 Runtime 公共接口扩展（待审核）
-
-在第 5.3 节接口基础上增加审批和客户端工具回传：
+Runtime 第一阶段只新增一个必要状态对象 `AgentTurn`：
 
 ```ts
-interface CreativeAgentRuntime {
-  start(input: AgentTurnInput): AsyncIterable<CreativeAgentEvent>;
-
-  resolveApproval(input: {
-    proposalId: string;
-    decision: "approved" | "rejected";
-  }): Promise<void>;
-
-  completeClientTool(input: {
-    executionId: string;
-    result: ToolExecutionResult;
-  }): Promise<void>;
-
-  steer(message: AgentUserMessage): Promise<void>;
-  followUp(message: AgentUserMessage): Promise<void>;
-  abort(): Promise<void>;
-  waitForIdle(): Promise<void>;
-  getState(): CreativeAgentState;
-}
-```
-
-React、HTTP 路由和 Canvas Domain 只能依赖本项目接口，不能直接依赖 Pi 类型。
-
-### 5.8 Runtime 事件协议（待审核）
-
-Runtime 对 UI 输出以下稳定事件：
-
-```ts
-type CreativeAgentEvent =
-  | TurnStartedEvent
-  | MessageDeltaEvent
-  | ToolRequestedEvent
-  | ApprovalRequestedEvent
-  | ToolExecutionStartedEvent
-  | ToolExecutionCompletedEvent
-  | TurnCompletedEvent
-  | TurnFailedEvent;
-```
-
-统一事件信封：
-
-```ts
-interface AgentEventEnvelope<T> {
-  eventId: string;
-  sequence: number;
+interface AgentTurn {
+  id: string;
   sessionId: string;
-  turnId: string;
-  timestamp: string;
-  type: string;
-  payload: T;
+  status: "running" | "awaiting_tool" | "awaiting_approval" | "completed" | "failed";
+  toolRound: number;
+  pendingToolCall?: {
+    toolCallId: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+  pendingProposalId?: string;
+  finalResponse?: string;
+  error?: string;
 }
 ```
 
-`sequence` 必须在同一 Turn 内单调递增，使前端能够检测丢失、去重并按顺序恢复事件。
+`ExecutionProposal` 复用第 10.1 节已经实现的审批协议，不在 Runtime 中重新定义。模型 Tool Call 使用统一 Model Gateway 已有类型；工具执行结果使用 Canvas Operation Result 或 Generation Result，不新增 `ToolExecution` 领域实体。
 
-### 5.9 Tool Registry 与审批拦截（待审核）
+Runtime 禁止：
 
-Runtime 使用统一工具定义：
+- 保存第二份 Project 或 Node；
+- 定义 AgentNode、AgentProject 等镜像对象；
+- 直接修改 React State；
+- 复制 Artifact 或 GenerationJob 状态；
+- 绕过现有 Canvas Operation 和 Model Gateway。
 
-```ts
-interface CreativeAgentTool {
-  name: string;
-  description: string;
-  inputSchema: JsonSchema;
-  executionLocation: "client" | "server";
-  approvalPolicy: "never" | "always" | "policy";
-  execute(context: ToolContext, input: unknown): Promise<ToolExecutionResult>;
-}
-```
+### 5.5 第一阶段唯一闭环（待审核）
 
-标准过程：
+第一阶段只迁移当前已经跑通的图片审批流程：
 
 ```text
-模型返回 Tool Call
-→ Schema 校验
-→ 权限、revision 和依赖校验
-→ 审批策略判断
-→ 需要审批：创建 ExecutionProposal 并暂停
-→ 批准：创建唯一 ToolExecution 并执行
-→ 拒绝：产生 user_rejected Tool Result
-→ 追加真实 role=tool 消息
-→ 继续模型循环
+用户消息
+→ 模型返回原生 Tool Call
+→ Runtime 最多循环 5 轮
+→ 普通画布工具交给现有 Canvas Operation Runner
+→ request_image_generation 产生现有 ExecutionProposal
+→ Runtime 暂停等待批准或拒绝
+→ 批准后调用现有统一生图 Gateway；拒绝则不执行
+→ 真实 Tool Result 回传模型
+→ 模型输出最终回复
 ```
 
-第一阶段只迁移现有图片生成审批。视频生成、删除审批、多 Agent 和自动重试不同时实施。
+第一阶段不实现：
 
-### 5.10 前后端通信与持久化端口（待审核）
+- SSE 或 WebSocket；
+- File Store、SQLite 和跨刷新恢复；
+- 通用 Event Bus；
+- 视频生成；
+- 删除审批；
+- 多 Agent；
+- Steering、Follow-up、Abort；
+- 自动重试和复杂任务队列。
 
-推荐使用 HTTP 命令加 SSE 事件流，不在 v0.1 引入 WebSocket：
+这些能力只有在当前闭环无法满足下一项真实需求时，才进入下一轮设计。
 
-```text
-POST /api/agent/turns
-GET  /api/agent/turns/:turnId/events
-POST /api/agent/proposals/:proposalId/resolve
-POST /api/agent/executions/:executionId/complete
-POST /api/agent/turns/:turnId/abort
-GET  /api/agent/turns/:turnId
-```
+### 5.6 最小实施步骤与验收（待审核）
 
-持久化必须先定义端口：
+1. 定义 `AgentTurn`、最小 Runtime 接口和 `FakeCreativeAgentRuntime`，不连接页面。
+2. 用 Fake Model 跑通普通 Tool Call、图片审批暂停、批准/拒绝和最终回复。
+3. 接入 Pi Adapter，用同一组测试验证行为一致。
+4. 将现有 `useChatAgent` Tool Loop 移入 Runtime；页面行为保持不变。
+5. 删除被替代的旧循环，完成第一阶段。
 
-```ts
-interface AgentRuntimeStore {
-  saveTurn(turn: AgentTurn): Promise<void>;
-  getTurn(turnId: string): Promise<AgentTurn | null>;
-  appendEvent(event: CreativeAgentEvent): Promise<void>;
-  listEvents(turnId: string, afterSequence?: number): Promise<CreativeAgentEvent[]>;
-}
-```
-
-推荐实现顺序：
-
-```text
-InMemoryAgentRuntimeStore（自动测试）
-→ FileAgentRuntimeStore（本地刷新恢复）
-→ SQLiteAgentRuntimeStore（数据模型稳定后）
-```
-
-### 5.11 Runtime 分步实施与验收（待审核）
-
-实施必须保持每一步可独立验证和回退：
-
-1. **Runtime Contract**：只建立类型、状态机、事件协议和 Fake Runtime，不改变页面行为。
-2. **Runtime Coordinator**：使用假模型跑通 Tool Loop、审批、幂等、Abort 和五轮停止。
-3. **迁移现有闭环**：把 `useChatAgent` 中的循环和审批状态迁入 Runtime，UI 只订阅事件。
-4. **Pi Adapter**：实现 `PiCreativeAgentRuntime`，旧实现保留在 Feature Flag 后直至契约测试等价。
-5. **持久化与清理**：实现 Pending Approval 刷新恢复，删除旧 Tool Loop，再接视频生成。
-
-第一阶段验收标准：
+第一阶段只验收：
 
 - Fake Runtime 无网络可运行；
-- 普通 Tool Result 能进入下一轮模型上下文；
-- 图片生成能暂停等待审批；
-- Reject 不调用执行器；
-- Approve 和重复 Approve 合计只调用一次；
-- 画布版本变化后审批失败；
-- 最大五轮后结构化停止；
-- React、Canvas Domain 和 HTTP 公共类型中不存在 Pi 类型。
+- Tool Result 正确进入下一轮模型输入；
+- Reject 不调用生图执行器；
+- Approve 只执行一次；
+- 过期 Snapshot 不执行；
+- 超过 5 轮明确失败；
+- Runtime 不复制任何既有领域对象；
+- 当前页面审批体验不退化。
 
 ## 6. 领域模型
 
@@ -876,30 +719,19 @@ Snapshot MUST NOT 返回 Base64、完整媒体、API Key、编辑器画布数据
 
 ### 9.4 Pi Agent Core 映射
 
-Pi Agent Core 与本项目概念的映射如下：
+第一阶段只映射实际需要的三个 Pi 概念：
 
 | Pi 概念 | 本项目用途 |
 | --- | --- |
 | `Agent` / `agentLoop` | 驱动单 Agent 多轮工具循环 |
 | `AgentTool.parameters` | 承载 Canvas Tool JSON Schema |
 | `AgentTool.execute()` | 调用 Canvas Operation Runner |
-| `beforeToolCall` | 接入审批、锁定和权限检查 |
-| `afterToolCall` | 统一结构化 Tool Result、Trace 与停止提示 |
-| `transformContext` | 注入并裁剪当前 Canvas Snapshot |
-| `convertToLlm` | 过滤 UI-only 事件并生成模型消息 |
-| `shouldStopAfterTurn` | 实现最大轮数、预算和产品停止条件 |
-| `subscribe()` | 转换为项目自己的 Agent Event Stream |
-| `abort()` | 取消当前 Agent Turn；不能冒充已取消外部生成任务 |
-| `steer()` | 接收用户在运行中的方向修正 |
-| `followUp()` | 当前工具链完成后的追加任务 |
 
 规则：
 
 - Canvas 写工具 v0.1 SHOULD 使用顺序执行，避免并行操作基于相同 revision 产生竞争。
-- 纯读取工具 MAY 并行执行。
-- `beforeToolCall` 拒绝执行时 MUST 返回明确原因，并进入标准 Tool Result。
-- Pi 的循环终止不等于 GenerationJob 取消；外部任务必须由独立 Job API 管理。
-- Agent Event MUST 转换为项目自己的稳定事件类型后再发给前端。
+- 审批由本项目 Runtime 在 Tool 真正执行前暂停，不交给 Pi 决定。
+- 其余 Pi 能力只有出现对应产品需求时才扩展。
 
 ## 10. 人工确认与生成边界
 
@@ -1188,79 +1020,20 @@ v0.1 至少通过以下测试：
 
 ## 19. 建议的代码边界
 
-以下目录只是 v0.1 提案，名称可调整：
+现有 Canvas Domain、Model Gateway、生成服务和聊天代码保持原位。第一阶段只新增或迁移以下最小文件，不重组整个仓库：
 
 ```text
 src/
-  canvas/
-    domain/
-      project.ts
-      node.ts
-      connection.ts
-      artifact.ts
-      generation-job.ts
-    operations/
-      operation-types.ts
-      operation-reducer.ts
-      operation-runner.ts
-      operation-validator.ts
-    registry/
-      node-definition.ts
-      builtin-nodes.ts
-    store/
-      canvas-store.ts
-    migration/
-      legacy-workflow.ts
-    agent/
-      canvas-tools.ts
-      canvas-snapshot.ts
-      agent-bridge.ts
+  agent-runtime/
+    types.ts
+    creativeAgentRuntime.ts
+    fakeCreativeAgentRuntime.ts
 
-  cli/
-    canvasctl.ts
-    commands/
-      project.ts
-      operation.ts
-      fixtures.ts
-      verify.ts
-
-  testing/
-    in-memory-canvas-store.ts
-    mock-model-gateway.ts
-    fixtures/
-
-server/
-  agent/
-    runtime/
-      creative-agent-runtime.ts
-      pi-creative-agent-runtime.ts
-      fake-creative-agent-runtime.ts
-      pi-event-adapter.ts
-      pi-message-adapter.ts
-    context/
-      canvas-context-transform.ts
-      message-converter.ts
-    tools/
-      canvas-agent-tools.ts
-      tool-result-adapter.ts
-  ai/
-    gateway/
-      model-registry.js
-      model-gateway.js
-      trace-store.js
-      errors.js
-    providers/
-      openai-compatible.js
-      gemini-native.js
-      fal.js
-  canvas/
-    project-store.js
-    operation-store.js
-    artifact-store.js
-    generation-job-store.js
+server/agent/
+  piAgentAdapter.ts
 ```
 
-现有组件和服务通过 Adapter 逐步迁移，不要求一次性移动全部代码。
+只有当现有 `useChatAgent` Tool Loop 完成等价迁移后，才删除被替代的旧代码。
 
 ## 20. 分阶段实施建议
 
@@ -1278,14 +1051,11 @@ server/
 ### Phase 2：Agent Bridge
 
 - 引入锁定版本的 Pi Agent Core 与 Pi AI。
-- 建立 `CreativeAgentRuntime` 和 Pi Adapter。
-- 增加画布 Snapshot。
-- 扩展原生工具集。
-- 返回真实 Operation Result。
-- 增加 revision、幂等和锁定检查。
-- 将 Pi 事件转换为项目稳定事件，不向前端暴露 Pi 类型。
+- 建立最小 `CreativeAgentRuntime`、Fake Runtime 和 Pi Adapter。
+- 复用已经完成的画布 Snapshot、工具集、Operation Result、revision 和审批协议。
+- 先迁移现有图片审批闭环，不增加新产品能力。
 
-完成标准：Agent 能可靠读取并局部修改已有画布。
+完成标准：页面行为不变，现有 Tool Loop 从 React Hook 移入 Runtime，并通过同一组自动测试。
 
 ### Phase 3：统一模型中枢
 
@@ -1314,10 +1084,7 @@ server/
 5. 是否在 v0.1 实现 `locked`，以及锁定是整个节点还是字段级？
 6. Agent 每轮最多执行多少次工具循环？提议为 5。
 7. Trace 是否默认保存完整 Prompt 与响应，还是仅在开发模式完整保存？
-8. Agent Runtime 是否确认运行在服务端，浏览器画布工具通过远程 Client Tool Executor 执行？
-9. Runtime 与 UI 是否确认采用 HTTP 命令 + SSE 事件流，而不在 v0.1 使用 WebSocket？
-10. Runtime Store 是否确认按 InMemory → File → SQLite 的顺序实现？
-11. Runtime 第一次迁移是否只包含现有图片审批，不同时实现视频、删除审批和多 Agent？
+8. Runtime 第一阶段是否确认只迁移现有图片审批闭环，并采用第 5.3 节的最小接口？
 
 Pi Agent Core 和 Pi AI 的采用已经确认，不属于待确认项；待确认的是其上层产品策略，而不是是否使用 Pi。
 
