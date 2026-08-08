@@ -50,6 +50,11 @@ test('Pi Runtime executes a canvas tool and returns the real node ID to the mode
     assert.equal(completed.response, '森林图片草稿节点已经创建。');
     assert.deepEqual(completed.traceIds, ['trace-first', 'trace-second']);
     assert.equal(invocations.length, 2);
+    const addNodeSchema = invocations[0].tools.find(tool => tool.name === 'add_canvas_node').inputSchema;
+    assert.deepEqual(addNodeSchema.properties.node_type.enum, ['image', 'video']);
+    assert.deepEqual(addNodeSchema.properties.image_model.enum, ['gpt-image-1.5', 'gemini-pro', 'kling-v1-5', 'kling-v2-1']);
+    assert.deepEqual(addNodeSchema.properties.quality.enum, ['Auto', '1K', '2K', '4K']);
+    assert.equal(JSON.stringify(addNodeSchema).includes('"const"'), false);
     assert.deepEqual(invocations[1].messages.map(message => message.role).slice(-2), ['assistant', 'tool']);
     assert.match(invocations[1].messages.at(-1).content, /node-real-123/);
     assert.equal(invocations[1].messages.at(-1).toolCallId, 'call-add-1');

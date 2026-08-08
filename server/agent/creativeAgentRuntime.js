@@ -196,11 +196,11 @@ export class CreativeAgentRuntime {
                 'add_canvas_node',
                 'Add one editable image or video draft node. This never generates media.',
                 Type.Object({
-                    node_type: Type.Union([Type.Literal('image'), Type.Literal('video')]),
+                    node_type: Type.String({ enum: ['image', 'video'] }),
                     prompt: Type.String({ minLength: 1, maxLength: 4000 }),
-                    image_model: Type.Optional(Type.Union(Object.keys(IMAGE_MODEL_SETTINGS).map(value => Type.Literal(value)))),
+                    image_model: Type.Optional(Type.String({ enum: Object.keys(IMAGE_MODEL_SETTINGS) })),
                     aspect_ratio: Type.Optional(Type.String()),
-                    quality: Type.Optional(Type.Union(['Auto', '1K', '2K', '4K'].map(value => Type.Literal(value)))),
+                    quality: Type.Optional(Type.String({ enum: ['Auto', '1K', '2K', '4K'] })),
                     expected_snapshot_version: Type.Optional(SNAPSHOT_VERSION),
                 }, { additionalProperties: false }),
                 (toolCallId, args) => {
