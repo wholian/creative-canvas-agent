@@ -196,12 +196,19 @@ function updatePatch(node: NodeData, updates: AgentNodeUpdates): NodeUpdatePatch
     return patch;
 }
 
-function failedExecutions(actions: AgentCanvasAction[], code: string, message: string, snapshotVersion: string): AgentCanvasExecution[] {
+function failedExecutions(
+    actions: AgentCanvasAction[],
+    code: string,
+    message: string,
+    snapshotVersion: string,
+    snapshot?: AgentCanvasSnapshot,
+): AgentCanvasExecution[] {
     return actions.map(action => ({
         toolCallId: action.toolCallId,
         status: 'failed',
         operation: operationName(action),
         snapshotVersion,
+        ...(snapshot ? { snapshot } : {}),
         errorCode: code,
         error: message,
     }));
@@ -252,7 +259,13 @@ export async function applyAgentCanvasActions({
         && action.expectedSnapshotVersion !== beforeSnapshot.snapshotVersion);
     if (stale || staleAdd) {
         return {
-            executions: failedExecutions(actions, 'stale_canvas_snapshot', 'Canvas changed after the Agent read it. Read a new snapshot before modifying it.', beforeSnapshot.snapshotVersion),
+            executions: failedExecutions(
+                actions,
+                'stale_canvas_snapshot',
+                'Canvas changed after the Agent read it. Re-check the current snapshot returned with this result and retry once if the target is still unambiguous.',
+                beforeSnapshot.snapshotVersion,
+                beforeSnapshot,
+            ),
             nodes: structuredClone(nodes),
             changed: false,
             snapshotVersion: beforeSnapshot.snapshotVersion,

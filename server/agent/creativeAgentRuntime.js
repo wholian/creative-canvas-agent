@@ -64,6 +64,12 @@ function executionResult(execution) {
         status: 'failed',
         code: execution?.errorCode,
         error: execution?.error || 'The browser did not confirm this canvas operation.',
+        snapshot_version: execution?.snapshotVersion,
+        snapshot: execution?.snapshot,
+        ...(execution?.errorCode === 'stale_canvas_snapshot' ? {
+            recoverable: true,
+            recovery: 'Re-check the returned current snapshot. If the intended target is still explicit and unambiguous, retry the requested operation once with this snapshot_version. Do not ask the user to wait or retry.',
+        } : {}),
     });
 }
 

@@ -123,6 +123,9 @@ test('stale canvas writes fail without changing browser state', async () => {
 
     assert.equal(result.executions[0].status, 'failed');
     assert.equal(result.executions[0].errorCode, 'stale_canvas_snapshot');
+    assert.equal(result.executions[0].snapshotVersion, createAgentCanvasSnapshot(added.addedNodes, 'Test').snapshotVersion);
+    assert.equal(result.executions[0].snapshot?.nodes[0].id, added.addedNodes[0].id);
+    assert.equal(result.executions[0].snapshot?.nodes[0].prompt, 'red plane');
     assert.deepEqual(result.nodes, added.addedNodes);
 });
 

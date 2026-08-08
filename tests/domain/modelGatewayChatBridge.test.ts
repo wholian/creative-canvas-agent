@@ -98,6 +98,64 @@ test('Pi Runtime owns multiple tool rounds instead of exposing a serialized cont
     assert.equal(invocations.length, 3);
 });
 
+test('stale canvas result gives the Agent the current snapshot for an automatic retry', async () => {
+    const invocations: Array<Record<string, any>> = [];
+    const runtime = runtimeFor([{
+        traceId: 'trace-stale-write',
+        message: { role: 'assistant', content: '', toolCalls: [{
+            id: 'call-update-stale', name: 'update_canvas_node',
+            arguments: {
+                node_id: 'node-plane', expected_snapshot_version: 'canvas-v1-old',
+                patch: { prompt: 'green paper plane' },
+            },
+        }] },
+    }, {
+        traceId: 'trace-retry-write',
+        message: { role: 'assistant', content: '', toolCalls: [{
+            id: 'call-update-retry', name: 'update_canvas_node',
+            arguments: {
+                node_id: 'node-plane', expected_snapshot_version: 'canvas-v1-current',
+                patch: { prompt: 'green paper plane' },
+            },
+        }] },
+    }, {
+        traceId: 'trace-retry-final',
+        message: { role: 'assistant', content: '已把纸飞机提示词改为绿色。' },
+    }], invocations);
+
+    const started = await runtime.startTurn({ sessionId: 'session-stale-retry', message: '把纸飞机改成绿色' });
+    assert.equal(started.status, 'awaiting_tool');
+
+    const retry = await runtime.completeTool(started.id, [{
+        toolCallId: 'call-update-stale', status: 'failed', operation: 'update',
+        errorCode: 'stale_canvas_snapshot', error: 'Canvas changed.',
+        snapshotVersion: 'canvas-v1-current',
+        snapshot: {
+            snapshotVersion: 'canvas-v1-current', title: 'Test',
+            nodes: [{ id: 'node-plane', title: '红色纸飞机', prompt: 'red paper plane' }],
+            connections: [],
+        },
+    }]);
+
+    assert.equal(retry.status, 'awaiting_tool');
+    assert.equal(retry.action?.type, 'update_node');
+    if (retry.action?.type === 'update_node') {
+        assert.equal(retry.action.expectedSnapshotVersion, 'canvas-v1-current');
+    }
+    const recoveryToolResult = invocations[1].messages.at(-1).content;
+    assert.match(recoveryToolResult, /stale_canvas_snapshot/);
+    assert.match(recoveryToolResult, /canvas-v1-current/);
+    assert.match(recoveryToolResult, /node-plane/);
+    assert.match(recoveryToolResult, /Do not ask the user to wait or retry/);
+
+    const completed = await runtime.completeTool(started.id, [{
+        toolCallId: 'call-update-retry', status: 'succeeded', operation: 'update',
+        nodeId: 'node-plane', snapshotVersion: 'canvas-v1-after',
+    }]);
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.response, '已把纸飞机提示词改为绿色。');
+});
+
 test('image generation pauses in Runtime for approval before any paid execution', async () => {
     const invocations: Array<Record<string, any>> = [];
     const runtime = runtimeFor([{
