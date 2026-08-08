@@ -14,9 +14,8 @@ import {
     useChatAgent,
     ChatMessage as ChatMessageType,
     ChatSession,
-    CanvasAction,
-    CanvasActionExecution,
 } from '../hooks/useChatAgent';
+import type { AgentClientAction as CanvasAction, AgentClientExecution as CanvasActionExecution } from '../agent-runtime/clientTools.ts';
 import { shouldSubmitChatMessage } from '../utils/chatInputKeyboard';
 
 // ============================================================================

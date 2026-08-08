@@ -13,7 +13,7 @@ import { CanvasNode } from './components/canvas/CanvasNode';
 import { ConnectionsLayer } from './components/canvas/ConnectionsLayer';
 import { ContextMenu } from './components/ContextMenu';
 import { ContextMenuState, NodeData, NodeStatus, NodeType } from './types';
-import { CanvasAction, CanvasActionExecution } from './hooks/useChatAgent';
+import type { AgentClientAction as CanvasAction, AgentClientExecution as CanvasActionExecution } from './agent-runtime/clientTools.ts';
 import { generateImage, generateVideo } from './services/generationService';
 import { useCanvasNavigation } from './hooks/useCanvasNavigation';
 import { useNodeManagement } from './hooks/useNodeManagement';
@@ -266,7 +266,7 @@ export default function App() {
     return canvasActions.map(action => {
       try {
         if (action.type !== 'add_node') {
-          return { toolCallId: action.toolCallId, status: 'failed', error: 'Unsupported canvas action.' };
+          return { toolCallId: action.toolCallId, status: 'failed', operation: 'add', error: 'Unsupported canvas action.' };
         }
         const nodeId = addAgentDraftNode(
           action.nodeType === 'video' ? NodeType.VIDEO : NodeType.IMAGE,
@@ -279,11 +279,12 @@ export default function App() {
             resolution: action.resolution,
           }
         );
-        return { toolCallId: action.toolCallId, status: 'succeeded', nodeId };
+        return { toolCallId: action.toolCallId, status: 'succeeded', operation: 'add', nodeId };
       } catch (error) {
         return {
           toolCallId: action.toolCallId,
           status: 'failed',
+          operation: 'add',
           error: error instanceof Error ? error.message : 'The browser could not create this canvas node.',
         };
       }

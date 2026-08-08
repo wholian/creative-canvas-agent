@@ -1,9 +1,7 @@
 /**
  * system.js
  * 
- * System prompts and templates for the chat agent.
- * NOTE: If more complex agent capabilities are needed, consider converting
- * the entire agent to Python (LangGraph Python has more features).
+ * System prompt for the Creative Agent Runtime.
  */
 
 // ============================================================================

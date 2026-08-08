@@ -279,17 +279,17 @@ Runtime 禁止：
 
 这些能力只有在当前闭环无法满足下一项真实需求时，才进入下一轮设计。
 
-### 5.6 最小实施步骤与验收（待审核）
+### 5.6 最小实施步骤与验收（已实现）
 
-1. 定义 `AgentTurn`、最小 Runtime 接口和 `FakeCreativeAgentRuntime`，不连接页面。
-2. 用 Fake Model 跑通普通 Tool Call、图片审批暂停、批准/拒绝和最终回复。
-3. 接入 Pi Adapter，用同一组测试验证行为一致。
-4. 将现有 `useChatAgent` Tool Loop 移入 Runtime；页面行为保持不变。
-5. 删除被替代的旧循环，完成第一阶段。
+1. 定义 `AgentTurn` 与最小 Runtime 接口，不复制既有 Canvas / Generation 领域。
+2. 用 Fake Model Gateway 跑通普通 Tool Call、图片审批暂停、批准和最终回复。
+3. 接入 Pi Adapter，由 Pi 原生维护 Assistant Tool Call 与 Tool Result 上下文。
+4. 将 Tool Loop、轮数限制和暂停状态收口到服务端 Runtime；页面只响应 Turn 状态。
+5. 删除旧 LangGraph、序列化 continuation、前端轮询循环和重复工具 Schema。
 
 第一阶段只验收：
 
-- Fake Runtime 无网络可运行；
+- Runtime 使用 Fake Model Gateway 时无网络可运行；
 - Tool Result 正确进入下一轮模型输入；
 - Reject 不调用生图执行器；
 - Approve 只执行一次；

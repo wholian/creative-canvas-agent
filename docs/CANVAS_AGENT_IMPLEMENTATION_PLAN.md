@@ -391,18 +391,18 @@ C3.4 已验证（2026-08-08）：
 
 真实请求必须单独授权；其余测试继续使用 Mock。
 
-## M1-D：Pi Creative Agent Runtime
+## M1-D：Pi Creative Agent Runtime（D1-D5 最小闭环已完成）
 
 目标：用 Pi 驱动我们自己的单 Agent Loop，不依赖 Codex、Claude 或 Pi CLI。
 
-### Slice D1：项目 Runtime 接口
+### Slice D1：项目 Runtime 接口（已完成）
 
 工作：
 
 - 定义 `CreativeAgentRuntime`；
 - 定义稳定 Agent Event；
-- 实现 `FakeCreativeAgentRuntime`；
-- 不安装 Pi。
+- 用 Fake Model Gateway 驱动同一套真实 Runtime，不另造一套行为实现；
+- Runtime 对 UI 只暴露稳定的 `AgentTurn`。
 
 测试：
 
@@ -412,7 +412,7 @@ C3.4 已验证（2026-08-08）：
 - Fake Tool Result；
 - 前端和契约测试不需要真实模型。
 
-### Slice D2：Pi Adapter 最小循环
+### Slice D2：Pi Adapter 最小循环（已完成）
 
 工作：
 

@@ -107,7 +107,7 @@ Mock 已覆盖普通失败、超时、401、404 和 429，并明确区分是否�
 - 不替换现有线上聊天 Agent；
 - 不改变当前图片、视频生成链路；
 - 不实现 Trace 可视化和持久化，当前只提供内存 Trace Store；
-- 不接 Pi Agent Loop；
+- 本文档对应的 Gateway 阶段当时不接 Pi Agent Loop；后续 D1 阶段现已完成接入。
 - 不把图片和视频强行包装成 Chat Completions。
 
 ## 4. 下一切片
@@ -118,7 +118,7 @@ C3.1 的 HTTP Transport 与 Provider Runtime、C3.2 的 Feature Flag 接入均�
 - 文本 Chat 的首轮回复、原生 Tool Call、真实 Tool Result 和第二轮确认均通过 Gateway；
 - API 响应携带对应 `traceIds`，但当前尚未提供 Trace UI；
 - 多模态 Chat 暂不硬塞进只支持文本的 v0.1 契约，会继续使用旧链路；
-- Topic Title 生成暂时仍走旧模型入口，后续随 Agent Runtime 一并收口。
+- Topic Title 已改为本地首条消息摘要，不再保留旧模型入口。
 
 Feature Flag 接入完成后，按独立授权执行了下述低成本真实冒烟请求。图片、视频和 Pi Agent Loop 在本次验收中继续后置。
 

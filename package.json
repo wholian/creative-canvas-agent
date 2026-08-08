@@ -13,11 +13,11 @@
     "setup:local-models": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'setup-local-models.bat' : 'bash setup-local-models.sh', {stdio: 'inherit'})\""
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "0.82.1",
+    "@earendil-works/pi-ai": "0.82.1",
     "@fal-ai/client": "^1.8.0",
     "@google/genai": "^1.32.0",
-    "@langchain/core": "^1.1.4",
-    "@langchain/google-genai": "^2.0.4",
-    "@langchain/langgraph": "^1.0.4",
+    "@google/generative-ai": "0.24.1",
     "@lobehub/icons": "^3.0.2",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",

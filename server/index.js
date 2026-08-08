@@ -18,6 +18,7 @@ import { processTikTokVideo, isValidTikTokUrl } from './tools/tiktok.js';
 import localModelsRoutes from './routes/local-models.js';
 import storyboardRoutes from './routes/storyboard.js';
 import { createCanvasChatModelGatewayRuntime } from './agent/modelGatewayRuntime.js';
+import { CreativeAgentRuntime } from './agent/creativeAgentRuntime.js';
 import { createImageModelGatewayRuntime } from './imageModelGatewayRuntime.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -66,6 +67,15 @@ const CHAT_MODEL_GATEWAY_RUNTIME = CREATIVE_MODEL_GATEWAY_ENABLED
         baseUrl: GEMINI_BASE_URL,
         modelName: GEMINI_MODEL,
         timeoutMs: Number(process.env.CREATIVE_MODEL_GATEWAY_TIMEOUT_MS || 30_000),
+    })
+    : undefined;
+
+const CREATIVE_AGENT_RUNTIME = CHAT_MODEL_GATEWAY_RUNTIME
+    ? new CreativeAgentRuntime({
+        modelGatewayRuntime: CHAT_MODEL_GATEWAY_RUNTIME,
+        modelName: GEMINI_MODEL,
+        baseUrl: GEMINI_BASE_URL,
+        maxToolRounds: Number(process.env.CREATIVE_AGENT_MAX_TOOL_ROUNDS || 5),
     })
     : undefined;
 
@@ -1171,8 +1181,8 @@ app.post('/api/trim-video', async (req, res) => {
 
 // ============================================================================
 // CHAT AGENT API
-// NOTE: Currently using LangGraph.js. If more complex agent capabilities
-// are needed (multi-agent, advanced tools), consider migrating to Python.
+// Pi Agent owns the Tool Loop; the browser only executes requested canvas
+// capabilities and returns their real results.
 // ============================================================================
 
 // Send a message to the chat agent
@@ -1197,10 +1207,12 @@ app.post('/api/chat', async (req, res) => {
             baseUrl: GEMINI_BASE_URL,
             modelName: GEMINI_MODEL,
             modelGatewayRuntime: CHAT_MODEL_GATEWAY_RUNTIME,
+            agentRuntime: CREATIVE_AGENT_RUNTIME,
         });
 
         res.json({
             success: true,
+            turn: result.turn,
             response: result.response,
             actions: result.actions,
             pendingActionId: result.pendingActionId,
@@ -1218,11 +1230,25 @@ app.post('/api/chat', async (req, res) => {
 // create) the requested canvas node. Its result becomes role=tool context.
 app.post('/api/chat/actions/:id/complete', async (req, res) => {
     try {
-        const result = await chatAgent.completeCanvasAction(req.params.id, req.body?.executions);
+        const result = await chatAgent.completeCanvasAction(req.params.id, req.body?.executions, {
+            agentRuntime: CREATIVE_AGENT_RUNTIME,
+        });
         res.json({ success: true, ...result });
     } catch (error) {
         console.error("Canvas action completion error:", error);
         res.status(400).json({ error: error.message || "Canvas action completion failed" });
+    }
+});
+
+app.post('/api/chat/actions/:id/approval', async (req, res) => {
+    try {
+        const result = await chatAgent.resolveCanvasApproval(req.params.id, req.body?.decision, {
+            agentRuntime: CREATIVE_AGENT_RUNTIME,
+        });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error("Canvas approval resolution error:", error);
+        res.status(400).json({ error: error.message || "Canvas approval resolution failed" });
     }
 });
 
@@ -1241,6 +1267,7 @@ app.get('/api/chat/sessions', async (req, res) => {
 app.delete('/api/chat/sessions/:id', async (req, res) => {
     try {
         chatAgent.deleteSession(req.params.id);
+        CREATIVE_AGENT_RUNTIME?.deleteSession(req.params.id);
         res.json({ success: true });
     } catch (error) {
         console.error("Delete session error:", error);

@@ -29,7 +29,7 @@ A modern, AI-powered canvas application for generating and manipulating images a
 - **🖼️ Image-to-Image** - Use reference images for generation
 - **📽️ Frame-to-Frame Video** - Animate between start and end frames
 - **🔗 Smart Node Connections** - Type-aware validation (IMAGE→VIDEO, TEXT→IMAGE, etc.)
-- **💬 AI Chat Assistant** - Built-in chat with LangGraph agent
+- **💬 Creative Canvas Agent** - Pi-powered Agent with native canvas tools and human approval
 - **📚 Asset Library** - Save and reuse generated assets
 - **💾 Workflow Management** - Save, load, and share workflows
 - **⚡ Real-time Updates** - Hot module replacement for instant feedback
@@ -422,7 +422,7 @@ Your API key is **never exposed** to the browser:
 
 ### Backend
 - **Express** - Web server
-- **LangGraph.js** - Chat agent framework
+- **Pi Agent Core** - Stateful Tool Loop and tool-result orchestration
 - **@google/genai** - Gemini API client
 - **dotenv** - Environment variables
 
@@ -501,11 +501,10 @@ If you are using this project for commercial purposes or building a commercial p
 - Kling AI for video generation
 - MiniMax for Hailuo AI video generation
 - Fal.ai for Kling V2.6 Motion Control API
-- LangGraph for agent framework
+- Pi Agent Core for the canvas Agent Runtime
 - React team for the amazing framework
 - Vite team for the blazing-fast build tool
 
 ---
 
 **Built with ❤️ using React, TypeScript, and AI APIs from OpenAI, Google, Kling, MiniMax, and Fal.ai (2025)**
-
