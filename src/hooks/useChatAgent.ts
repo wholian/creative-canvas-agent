@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExecutionProposal } from '../agent-runtime/executionProposal.ts';
 import type { AgentClientAction, AgentClientExecution } from '../agent-runtime/clientTools.ts';
 import type { AgentTurn } from '../agent-runtime/types.ts';
@@ -52,7 +52,7 @@ interface UseChatAgentReturn {
     startNewChat: () => void;
     loadSession: (sessionId: string) => Promise<void>;
     deleteSession: (sessionId: string) => Promise<void>;
-    refreshSessions: () => Promise<void>;
+    refreshSessions: () => Promise<ChatSession[]>;
     hasMessages: boolean;
 }
 
@@ -91,6 +91,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
     const [pendingApproval, setPendingApproval] = useState<PendingExecutionApproval | null>(null);
     const [isApprovalExecuting, setIsApprovalExecuting] = useState(false);
+    const didRestoreLatestSessionRef = useRef(false);
 
     const ensureSession = useCallback(() => {
         if (sessionId) return sessionId;
@@ -99,13 +100,17 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         return nextSessionId;
     }, [sessionId]);
 
-    const refreshSessions = useCallback(async () => {
+    const refreshSessions = useCallback(async (): Promise<ChatSession[]> => {
         setIsLoadingSessions(true);
         try {
             const response = await fetch('/api/chat/sessions');
-            if (response.ok) setSessions(await response.json());
+            if (!response.ok) return [];
+            const nextSessions = await response.json() as ChatSession[];
+            setSessions(nextSessions);
+            return nextSessions;
         } catch (refreshError) {
             console.error('Failed to fetch sessions:', refreshError);
+            return [];
         } finally {
             setIsLoadingSessions(false);
         }
@@ -284,7 +289,18 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         setError(null);
     }, [pendingApproval]);
 
-    useEffect(() => { void refreshSessions(); }, [refreshSessions]);
+    useEffect(() => {
+        if (didRestoreLatestSessionRef.current) return;
+        didRestoreLatestSessionRef.current = true;
+        void (async () => {
+            const latestSession = (await refreshSessions())[0];
+            if (latestSession) {
+                await loadSession(latestSession.id);
+                return;
+            }
+            setSessionId(current => current || generateSessionId());
+        })();
+    }, [loadSession, refreshSessions]);
 
     return {
         messages,
