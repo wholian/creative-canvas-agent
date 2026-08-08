@@ -81,44 +81,91 @@ const IMAGE_MODEL_SETTINGS = {
     },
 };
 
-const CANVAS_TOOLS = [{
-    type: "function",
-    function: {
-        name: "add_canvas_node",
-        description: "Add one editable image or video draft node to the user's canvas. This tool never generates media.",
-        parameters: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-                node_type: {
-                    type: "string",
-                    enum: ["image", "video"],
-                    description: "Use image for a still-image generation draft and video for a video-generation draft.",
-                },
-                prompt: {
-                    type: "string",
-                    description: "A concise, editable generation prompt derived from the user's request.",
-                },
-                image_model: {
-                    type: "string",
-                    enum: Object.keys(IMAGE_MODEL_SETTINGS),
-                    description: "For image nodes only. Set it only when the user specifies a model; otherwise omit it.",
-                },
-                aspect_ratio: {
-                    type: "string",
-                    enum: [...new Set(Object.values(IMAGE_MODEL_SETTINGS).flatMap(model => model.aspectRatios))],
-                    description: "For image nodes only. Set it only when the user specifies a canvas ratio or pixel size; otherwise omit it.",
-                },
-                quality: {
-                    type: "string",
-                    enum: ["Auto", "1K", "2K", "4K"],
-                    description: "For image nodes only. This is the provider quality/resolution preset; set it only when the user specifies it.",
-                },
-            },
-            required: ["node_type", "prompt"],
+const SNAPSHOT_VERSION_PROPERTY = {
+    type: "string",
+    description: "The exact snapshot_version returned by get_canvas_snapshot. Required for safe writes to existing canvas state.",
+};
+
+const CANVAS_TOOLS = [
+    {
+        type: "function",
+        function: {
+            name: "get_canvas_snapshot",
+            description: "Read a lightweight snapshot of canvas nodes, connections, exact IDs, and snapshot version. Call this before referring to, updating, deleting, or connecting existing nodes.",
+            parameters: { type: "object", additionalProperties: false, properties: {} },
         },
     },
-}];
+    {
+        type: "function",
+        function: {
+            name: "add_canvas_node",
+            description: "Add one editable image or video draft node. This tool never generates media.",
+            parameters: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    node_type: { type: "string", enum: ["image", "video"] },
+                    prompt: { type: "string", description: "Editable generation prompt, 1 to 4000 characters." },
+                    image_model: { type: "string", enum: Object.keys(IMAGE_MODEL_SETTINGS) },
+                    aspect_ratio: {
+                        type: "string",
+                        enum: [...new Set(Object.values(IMAGE_MODEL_SETTINGS).flatMap(model => model.aspectRatios))],
+                    },
+                    quality: { type: "string", enum: ["Auto", "1K", "2K", "4K"] },
+                    expected_snapshot_version: SNAPSHOT_VERSION_PROPERTY,
+                },
+                required: ["node_type", "prompt"],
+            },
+        },
+    },
+    {
+        type: "function",
+        function: {
+            name: "update_canvas_node",
+            description: "Update supported editable fields on one existing node without replacing the whole canvas.",
+            parameters: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    node_id: { type: "string" },
+                    expected_snapshot_version: SNAPSHOT_VERSION_PROPERTY,
+                    patch: {
+                        type: "object",
+                        additionalProperties: false,
+                        minProperties: 1,
+                        properties: {
+                            title: { type: "string" }, prompt: { type: "string" },
+                            x: { type: "number" }, y: { type: "number" }, model: { type: "string" },
+                            aspect_ratio: { type: "string" }, resolution: { type: "string" },
+                        },
+                    },
+                },
+                required: ["node_id", "expected_snapshot_version", "patch"],
+            },
+        },
+    },
+    ...["delete_canvas_node", "connect_canvas_nodes", "disconnect_canvas_nodes"].map(name => ({
+        type: "function",
+        function: {
+            name,
+            description: name === "delete_canvas_node"
+                ? "Delete one explicitly identified existing node and its incident connections."
+                : `${name.startsWith("disconnect") ? "Disconnect" : "Connect"} an existing parent node (from_node_id) ${name.startsWith("disconnect") ? "from" : "to"} a child node (to_node_id).`,
+            parameters: name === "delete_canvas_node" ? {
+                type: "object", additionalProperties: false,
+                properties: { node_id: { type: "string" }, expected_snapshot_version: SNAPSHOT_VERSION_PROPERTY },
+                required: ["node_id", "expected_snapshot_version"],
+            } : {
+                type: "object", additionalProperties: false,
+                properties: {
+                    from_node_id: { type: "string" }, to_node_id: { type: "string" },
+                    expected_snapshot_version: SNAPSHOT_VERSION_PROPERTY,
+                },
+                required: ["from_node_id", "to_node_id", "expected_snapshot_version"],
+            },
+        },
+    })),
+];
 
 const GATEWAY_CANVAS_TOOLS = CANVAS_TOOLS.map(tool => ({
     name: tool.function.name,
@@ -153,15 +200,43 @@ function createOpenAIClient(apiKey, baseUrl) {
 }
 
 function validateCanvasToolCall(toolCall) {
-    if (toolCall.type !== "function" || toolCall.function?.name !== "add_canvas_node") {
-        return {
-            toolCallId: toolCall.id,
-            error: "Unknown canvas tool. Only add_canvas_node is available.",
-        };
-    }
-
     try {
         const args = JSON.parse(toolCall.function.arguments || "{}");
+        const name = toolCall.type === "function" ? toolCall.function?.name : "";
+        if (name === "get_canvas_snapshot") {
+            return { toolCallId: toolCall.id, action: { type: "get_snapshot", toolCallId: toolCall.id } };
+        }
+        const version = typeof args.expected_snapshot_version === "string" ? args.expected_snapshot_version.trim() : "";
+        if (name === "update_canvas_node") {
+            const patch = args.patch && typeof args.patch === "object" && !Array.isArray(args.patch) ? args.patch : {};
+            const supported = ["title", "prompt", "x", "y", "model", "aspect_ratio", "resolution"];
+            const updates = Object.fromEntries(Object.entries(patch)
+                .filter(([key]) => supported.includes(key))
+                .map(([key, value]) => [key === "aspect_ratio" ? "aspectRatio" : key, value]));
+            if (typeof args.node_id !== "string" || !args.node_id || !version || Object.keys(updates).length === 0) {
+                return { toolCallId: toolCall.id, error: "update_canvas_node requires node_id, expected_snapshot_version, and at least one supported patch field." };
+            }
+            return { toolCallId: toolCall.id, action: { type: "update_node", toolCallId: toolCall.id, nodeId: args.node_id, expectedSnapshotVersion: version, updates } };
+        }
+        if (name === "delete_canvas_node") {
+            if (typeof args.node_id !== "string" || !args.node_id || !version) {
+                return { toolCallId: toolCall.id, error: "delete_canvas_node requires node_id and expected_snapshot_version." };
+            }
+            return { toolCallId: toolCall.id, action: { type: "delete_node", toolCallId: toolCall.id, nodeId: args.node_id, expectedSnapshotVersion: version } };
+        }
+        if (name === "connect_canvas_nodes" || name === "disconnect_canvas_nodes") {
+            if (typeof args.from_node_id !== "string" || !args.from_node_id || typeof args.to_node_id !== "string" || !args.to_node_id || !version) {
+                return { toolCallId: toolCall.id, error: `${name} requires from_node_id, to_node_id, and expected_snapshot_version.` };
+            }
+            return { toolCallId: toolCall.id, action: {
+                type: name === "connect_canvas_nodes" ? "connect_nodes" : "disconnect_nodes",
+                toolCallId: toolCall.id, fromNodeId: args.from_node_id, toNodeId: args.to_node_id,
+                expectedSnapshotVersion: version,
+            } };
+        }
+        if (name !== "add_canvas_node") {
+            return { toolCallId: toolCall.id, error: "Unknown canvas tool." };
+        }
         const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
         if (!(["image", "video"].includes(args.node_type)) || !prompt || prompt.length > 4000) {
             return {
@@ -176,6 +251,7 @@ function validateCanvasToolCall(toolCall) {
                 nodeType: args.node_type,
                 prompt,
                 toolCallId: toolCall.id,
+                ...(version ? { expectedSnapshotVersion: version } : {}),
             },
         };
 
@@ -202,9 +278,28 @@ function validateCanvasToolCall(toolCall) {
     } catch {
         return {
             toolCallId: toolCall.id,
-            error: "add_canvas_node arguments must be valid JSON.",
+            error: "Canvas tool arguments must be valid JSON.",
         };
     }
+}
+
+function createAwaitingClientResult({ engine, requestMessages, assistantMessage, traceId }) {
+    const toolCalls = assistantMessage.tool_calls || [];
+    const validatedCalls = toolCalls.map(validateCanvasToolCall);
+    return {
+        status: "awaiting_client",
+        actions: validatedCalls.flatMap(result => result.action ? [result.action] : []),
+        continuation: {
+            engine,
+            requestMessages,
+            assistantMessage: {
+                content: assistantMessage.content || "",
+                tool_calls: toolCalls,
+            },
+            validatedCalls,
+        },
+        traceIds: traceId ? [traceId] : [],
+    };
 }
 
 /**
@@ -264,22 +359,7 @@ export async function startCanvasToolAgent(messages, { apiKey, baseUrl, modelNam
         };
     }
 
-    const validatedCalls = toolCalls.map(validateCanvasToolCall);
-    const actions = validatedCalls.flatMap(result => result.action ? [result.action] : []);
-    return {
-        status: "awaiting_client",
-        actions,
-        continuation: {
-            engine,
-            requestMessages,
-            assistantMessage: {
-                content: assistantMessage.content || "",
-                tool_calls: toolCalls,
-            },
-            validatedCalls,
-        },
-        traceIds: traceId ? [traceId] : [],
-    };
+    return createAwaitingClientResult({ engine, requestMessages, assistantMessage, traceId });
 }
 
 /**
@@ -304,15 +384,18 @@ export async function completeCanvasToolAgent(
             };
         }
         const execution = executionByToolCallId.get(result.toolCallId);
-        if (execution?.status === "succeeded" && typeof execution.nodeId === "string" && execution.nodeId) {
+        if (execution?.status === "succeeded") {
             return {
                 role: "tool",
                 tool_call_id: result.toolCallId,
                 content: JSON.stringify({
                     status: "succeeded",
+                    operation: execution.operation,
+                    snapshot_version: execution.snapshotVersion,
+                    snapshot: execution.snapshot,
                     node_id: execution.nodeId,
-                    action: result.action,
-                    note: "The browser created the editable draft node. No media was generated.",
+                    connection_id: execution.connectionId,
+                    deleted_connection_ids: execution.deletedConnectionIds,
                 }),
             };
         }
@@ -321,59 +404,78 @@ export async function completeCanvasToolAgent(
             tool_call_id: result.toolCallId,
             content: JSON.stringify({
                 status: "failed",
-                error: execution?.error || "The browser did not confirm creation of this canvas node.",
+                code: execution?.errorCode,
+                error: execution?.error || "The browser did not confirm this canvas operation.",
             }),
         };
     });
 
-    let finalMessage;
+    let assistantMessage;
     let traceId;
+    let requestMessages;
     if (continuation.engine === 'model-gateway') {
         if (!modelGatewayRuntime) {
             throw new Error('Model Gateway runtime is unavailable for this pending canvas action.');
         }
+        requestMessages = [
+            ...continuation.requestMessages,
+            {
+                role: 'assistant',
+                content: continuation.assistantMessage.content,
+                toolCalls: toGatewayToolCalls(continuation.assistantMessage.tool_calls),
+            },
+            ...toolMessages.map(message => ({
+                role: 'tool',
+                toolCallId: message.tool_call_id,
+                content: message.content,
+            })),
+        ];
         const gatewayResult = await modelGatewayRuntime.invoke({
-            messages: [
-                ...continuation.requestMessages,
-                {
-                    role: 'assistant',
-                    content: continuation.assistantMessage.content,
-                    toolCalls: toGatewayToolCalls(continuation.assistantMessage.tool_calls),
-                },
-                ...toolMessages.map(message => ({
-                    role: 'tool',
-                    toolCallId: message.tool_call_id,
-                    content: message.content,
-                })),
-            ],
+            messages: requestMessages,
+            tools: GATEWAY_CANVAS_TOOLS,
             parameters: { temperature: 0.7, max_tokens: 2048 },
         });
-        finalMessage = { content: gatewayResult.message.content };
+        assistantMessage = {
+            content: gatewayResult.message.content,
+            tool_calls: toOpenAIToolCalls(gatewayResult.message.toolCalls),
+        };
         traceId = gatewayResult.traceId;
     } else {
         const client = createOpenAIClient(apiKey, baseUrl);
-        const finalCompletion = await client.chat.completions.create({
+        requestMessages = [
+            ...continuation.requestMessages,
+            {
+                role: "assistant",
+                content: continuation.assistantMessage.content,
+                tool_calls: continuation.assistantMessage.tool_calls,
+            },
+            ...toolMessages,
+        ];
+        const nextCompletion = await client.chat.completions.create({
             model: modelName || "gemini-2.0-flash",
-            messages: [
-                ...continuation.requestMessages,
-                {
-                    role: "assistant",
-                    content: continuation.assistantMessage.content,
-                    tool_calls: continuation.assistantMessage.tool_calls,
-                },
-                ...toolMessages,
-            ],
+            messages: requestMessages,
+            tools: CANVAS_TOOLS,
+            tool_choice: "auto",
             temperature: 0.7,
             max_tokens: 2048,
         });
-        finalMessage = finalCompletion.choices?.[0]?.message;
+        assistantMessage = nextCompletion.choices?.[0]?.message;
     }
-    if (!finalMessage) {
-        throw new Error("The OpenAI-compatible gateway returned no final message after tool execution.");
+    if (!assistantMessage) {
+        throw new Error("The OpenAI-compatible gateway returned no assistant message after tool execution.");
+    }
+    if ((assistantMessage.tool_calls || []).length > 0) {
+        return createAwaitingClientResult({
+            engine: continuation.engine,
+            requestMessages,
+            assistantMessage,
+            traceId,
+        });
     }
 
     return {
-        response: finalMessage.content || "已完成画布操作。",
+        status: "completed",
+        response: assistantMessage.content || "已完成画布操作。",
         traceIds: traceId ? [traceId] : [],
     };
 }

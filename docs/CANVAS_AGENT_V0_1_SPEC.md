@@ -524,6 +524,30 @@ get_generation_status
 - `request_generation` 只创建生成请求；是否执行由审批策略决定。
 - 工具参数 MUST 使用 JSON Schema 声明必填项、选填项、枚举和长度限制。
 
+当前“画布操作闭环”切片只开放前六个工具；生成相关工具继续后置：
+
+| Tool | 作用 | 关键参数 |
+| --- | --- | --- |
+| `get_canvas_snapshot` | 读取当前画布的轻量结构 | 无 |
+| `add_canvas_node` | 新增 Image / Video 草稿 | `node_type`、`prompt`，模型参数选填 |
+| `update_canvas_node` | 修改一个既有节点 | `node_id`、`expected_snapshot_version`、`patch` |
+| `delete_canvas_node` | 删除节点并级联删除关联连接 | `node_id`、`expected_snapshot_version` |
+| `connect_canvas_nodes` | 建立父节点到子节点的 input 连接 | `from_node_id`、`to_node_id`、`expected_snapshot_version` |
+| `disconnect_canvas_nodes` | 删除指定父子节点间的 input 连接 | `from_node_id`、`to_node_id`、`expected_snapshot_version` |
+
+`update_canvas_node.patch` v0.1 只允许以下字段：
+
+```text
+title
+prompt
+x / y
+model
+aspect_ratio
+resolution
+```
+
+不允许 Agent 通过通用 Patch 修改 `resultUrl`、生成状态、编辑器数据、历史记录或其他 UI-only 字段。
+
 ### 9.2 Snapshot 范围
 
 Agent 每轮不应默认接收全部 Base64、完整视频或无限历史。Snapshot SHOULD 包含：
@@ -538,10 +562,41 @@ Agent 每轮不应默认接收全部 Base64、完整视频或无限历史。Snap
 
 Snapshot 裁剪策略属于实现细节，但 MUST 保证模型基于当前 revision 工作。
 
+当前 React 画布仍是 UI 权威状态，尚未长期持有 Domain revision。因此过渡期 Snapshot 使用确定性的 `snapshot_version`：它由 Agent 可见节点字段和显式连接排序后计算，功能等价于乐观并发版本。
+
+Snapshot 返回：
+
+```json
+{
+  "snapshot_version": "canvas-v1-...",
+  "title": "Untitled",
+  "nodes": [
+    {
+      "id": "node-id",
+      "type": "image",
+      "title": "AI Image Draft",
+      "prompt": "...",
+      "position": { "x": 100, "y": 200 },
+      "status": "idle",
+      "model": "gemini-pro",
+      "aspect_ratio": "16:9",
+      "resolution": "2K"
+    }
+  ],
+  "connections": [
+    { "from_node_id": "a", "to_node_id": "b", "kind": "input" }
+  ]
+}
+```
+
+Snapshot MUST NOT 返回 Base64、完整媒体、API Key、编辑器画布数据或完整 Artifact 内容。
+
+除新增节点外，所有写工具 MUST 回传最近一次 Snapshot 的 `expected_snapshot_version`。浏览器执行前重新计算版本；不一致时返回 `stale_canvas_snapshot`，不得在旧状态上继续修改。模型收到该 Tool Result 后只能重新读取或停止。
+
 ### 9.3 标准工具循环
 
 ```text
-1. 用户消息 + 当前 Snapshot → LLM
+1. 用户消息 → LLM；涉及既有画布对象时模型先调用 `get_canvas_snapshot`
 2. LLM → assistant.tool_calls
 3. 服务端校验 Tool Schema
 4. Canvas Runtime 执行 Canvas Operation
@@ -552,11 +607,29 @@ Snapshot 裁剪策略属于实现细节，但 MUST 保证模型基于当前 revi
 
 约束：
 
-- MUST 支持一轮多个 Tool Call，但执行策略需明确串行或并行。
-- 有依赖的操作 MUST 串行，例如先创建节点，再使用其 ID 建立连接。
-- 最大工具循环次数 MUST 有上限；v0.1 提议为 5，待确认。
+- MUST 支持一轮多个 Tool Call；同一响应中的多个写操作以一个原子 Batch 顺序执行，共用执行前的 `expected_snapshot_version`。
+- 读取与写入不得混在同一 Tool Call Batch；模型必须先取得读取结果，再在下一轮提出写入。
+- 有依赖的操作 MUST 跨轮串行，例如先创建节点并取得真实 ID，再使用其 ID 建立连接。
+- 最大工具循环次数确认为 5；浏览器和服务端都必须限制，超过后返回结构化错误并停止。
 - 模型返回普通文本中的 JSON、XML 或“动作建议”不得直接修改画布。
 - Agent MUST 在最终回复中概括实际成功和失败的动作，不得只复述计划。
+- 删除只在用户明确要求、且 Snapshot 能唯一定位目标节点时执行；引用不明确时必须先询问，不得猜测。
+- `from_node_id → to_node_id` 定义为父节点向子节点提供 input，禁止模型反向解释。
+
+统一 Tool Result 至少包含：
+
+```json
+{
+  "toolCallId": "call-id",
+  "status": "succeeded | failed",
+  "operation": "snapshot | add | update | delete | connect | disconnect",
+  "snapshotVersion": "canvas-v1-...",
+  "nodeId": "optional-real-node-id",
+  "connectionId": "optional-real-connection-id",
+  "errorCode": "optional-structured-code",
+  "error": "optional-readable-message"
+}
+```
 
 ### 9.4 Pi Agent Core 映射
 

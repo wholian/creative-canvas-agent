@@ -157,7 +157,7 @@ export function mergeDomainNodeIntoLegacy(node: CanvasNode, previous?: NodeData)
     return base;
 }
 
-function projectIntoLegacy(project: CanvasProject, previousNodes: NodeData[]): NodeData[] {
+export function projectCanvasIntoLegacy(project: CanvasProject, previousNodes: NodeData[]): NodeData[] {
     const previousById = new Map(previousNodes.map(node => [node.id, node]));
     const parentIdsByChild = new Map<string, string[]>();
     for (const connection of project.connections) {
@@ -372,7 +372,7 @@ export async function applyManualNodeDelete({
     const project = await runner.getSnapshot(projectId);
     return {
         status: 'succeeded',
-        nodes: projectIntoLegacy(project, nodes),
+        nodes: projectCanvasIntoLegacy(project, nodes),
         projectRevision: project.revision,
     };
 }
@@ -405,7 +405,7 @@ export async function applyManualConnectionAdd({
         return { status: 'failed', projectRevision: result.projectRevision, error: operationFailure(result) };
     }
     const project = await runner.getSnapshot(projectId);
-    return { status: 'succeeded', nodes: projectIntoLegacy(project, nodes), projectRevision: project.revision };
+    return { status: 'succeeded', nodes: projectCanvasIntoLegacy(project, nodes), projectRevision: project.revision };
 }
 
 export async function applyManualConnectionDelete({
@@ -446,7 +446,7 @@ export async function applyManualConnectionDelete({
     const updatedProject = await runner.getSnapshot(projectId);
     return {
         status: 'succeeded',
-        nodes: projectIntoLegacy(updatedProject, nodes),
+        nodes: projectCanvasIntoLegacy(updatedProject, nodes),
         projectRevision: updatedProject.revision,
     };
 }
@@ -495,7 +495,7 @@ export async function applyManualConnectedNodeAdd({
         return { status: 'failed', projectRevision: failed.projectRevision, error: operationFailure(failed) };
     }
     const project = await runner.getSnapshot(projectId);
-    const projected = projectIntoLegacy(project, nodes);
+    const projected = projectCanvasIntoLegacy(project, nodes);
     return {
         status: 'succeeded',
         nodes: projected,

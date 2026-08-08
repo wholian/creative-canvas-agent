@@ -18,7 +18,7 @@ import { generateImage, generateVideo } from './services/generationService';
 import { useCanvasNavigation } from './hooks/useCanvasNavigation';
 import { useNodeManagement } from './hooks/useNodeManagement';
 import { useCanvasDomainMirror } from './hooks/useCanvasDomainMirror';
-import { applyAgentDraftActions } from './canvas-adapters/agentCanvasOperationBridge';
+import { applyAgentCanvasActions } from './canvas-adapters/agentCanvasOperationBridge';
 import { useConnectionDragging } from './hooks/useConnectionDragging';
 import { useNodeDragging } from './hooks/useNodeDragging';
 import { useGeneration } from './hooks/useGeneration';
@@ -163,22 +163,33 @@ export default function App() {
     clearCanvasOperationError
   } = useNodeManagement({ title: canvasTitle, viewport });
 
+  // Keep one synchronous source for consecutive Agent tool rounds. React may
+  // not re-render between add -> connect, so the next round must see the graph
+  // produced by the previous round immediately.
+  const agentCanvasNodesRef = React.useRef(nodes);
+  React.useEffect(() => {
+    agentCanvasNodesRef.current = nodes;
+  }, [nodes]);
+
   // B1 read-only adapter: mirrors the legacy React canvas into the new domain
   // graph for diagnostics while B2 moves supported UI writes incrementally.
   useCanvasDomainMirror({ nodes, viewport, title: canvasTitle });
 
   const handleAgentCanvasActions = React.useCallback(async (actions: CanvasAction[]): Promise<CanvasActionExecution[]> => {
     if (import.meta.env.VITE_CANVAS_OPERATION_BRIDGE !== 'false') {
-      const result = await applyAgentDraftActions({
+      const result = await applyAgentCanvasActions({
         actions,
-        nodes,
+        nodes: agentCanvasNodesRef.current,
         viewport,
         title: canvasTitle,
         canvasSize: { width: window.innerWidth, height: window.innerHeight },
       });
-      if (result.addedNodes.length > 0) {
-        setNodes(previous => [...previous, ...result.addedNodes]);
-        setSelectedNodeIds(result.addedNodes.map(node => node.id));
+      if (result.changed) {
+        agentCanvasNodesRef.current = result.nodes;
+        setNodes(result.nodes);
+        const existingIds = new Set(result.nodes.map(node => node.id));
+        setSelectedNodeIds(result.executions.flatMap(execution =>
+          execution.nodeId && existingIds.has(execution.nodeId) ? [execution.nodeId] : []));
       }
       return result.executions;
     }
@@ -208,7 +219,7 @@ export default function App() {
         };
       }
     });
-  }, [addAgentDraftNode, canvasTitle, nodes, setNodes, setSelectedNodeIds, viewport]);
+  }, [addAgentDraftNode, canvasTitle, setNodes, setSelectedNodeIds, viewport]);
 
   const {
     isDraggingConnection,

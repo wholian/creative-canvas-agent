@@ -22,6 +22,7 @@
 - M1-C / C3.1 Provider Runtime 与 OpenAI-compatible HTTP Transport：完成；
 - M1-C / C3.2 Chat / Tool Calling Feature Flag 接入：完成；
 - M1-C / C3.3 低成本真实 Provider 与 Tool Call 两轮冒烟验收：完成；
+- M1-C / C3.4 现有 Chat Agent 六类画布工具、多轮循环与浏览器执行闭环：完成；
 - 当前下一步：进入 D1 Creative Agent Runtime 接口；
 
 ## 1. 推进原则
@@ -371,6 +372,17 @@ C3.2 已验证：
 - 两轮 Trace ID 返回到现有 Chat API；
 - 文本聊天进入 Gateway，多模态聊天在 v0.1 仍回退旧路径；
 - Feature Flag 默认关闭，不自动读取、迁移或调用用户已有 Key。
+
+C3.4 已验证（2026-08-08）：
+
+- 当前 Chat Agent 暴露 `get_canvas_snapshot`、新增、更新、删除、连接与断开六类工具；
+- 涉及既有节点时先读取轻量 Snapshot，再使用真实 Node ID 和 `snapshot_version` 写入；
+- 浏览器仍是画布权威状态，所有写入继续经过 Operation Runner；
+- 同轮多个写操作原子执行，有依赖的操作跨轮串行，前后端均限制最多 5 个 Tool Round；
+- Tool Result 返回真实 Node / Connection ID、最新 Snapshot Version 或结构化错误；
+- 自动测试覆盖 Snapshot 脱敏、更新、删除、过期版本拒绝、连接、断开和三轮模型调用；
+- 真实浏览器已验证新增、更新、删除、连接与断开，测试节点已清理；
+- 这是迁移到 Pi Runtime 前对现有 Chat Agent 的能力补齐，不代表 D1-D5 已完成。
 
 真实验收：`gemini-2.5-flash` 经 `https://slb-v1.api.fan/v1/chat/completions` 完成文本请求；页面完成首轮 Tool Call、真实草稿节点创建、`nodeId` Tool Result 与第二轮确认，未触发媒体生成。
 

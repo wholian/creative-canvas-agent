@@ -84,6 +84,7 @@ function resolveImageToBase64(imageInput) {
 const sessionCache = new Map();
 const pendingCanvasActions = new Map();
 const PENDING_ACTION_TTL_MS = 10 * 60 * 1000;
+const MAX_CANVAS_TOOL_ROUNDS = 5;
 
 /**
  * Convert multimodal content to text representation for serialization
@@ -374,6 +375,7 @@ export async function sendMessage(sessionId, content, media, modelConfig) {
                 continuation: toolResult.continuation,
                 modelConfig,
                 traceIds: toolResult.traceIds || [],
+                round: 1,
                 createdAt: Date.now(),
             });
             saveSession(sessionId, session);
@@ -451,37 +453,57 @@ export async function completeCanvasAction(pendingActionId, executions) {
         throw new Error("Canvas action expired before the browser confirmed it.");
     }
 
-    try {
-        const completed = await completeCanvasToolAgent(
-            pending.continuation,
-            executions,
-            pending.modelConfig
-        );
-        const session = getSession(pending.sessionId);
-        const aiResponse = new AIMessage(completed.response);
-        session.messages.push(aiResponse);
-
-        let topic = session.topic;
-        if (session.messages.length === 2 && !topic) {
-            try {
-                topic = await generateTopicTitle(session.messages, pending.modelConfig.apiKey, pending.modelConfig);
-                session.topic = topic;
-            } catch (err) {
-                console.error("Failed to generate topic:", err);
-                topic = "New Chat";
-            }
+    const completed = await completeCanvasToolAgent(
+        pending.continuation,
+        executions,
+        pending.modelConfig
+    );
+    const traceIds = [...(pending.traceIds || []), ...(completed.traceIds || [])];
+    if (completed.status === "awaiting_client") {
+        if (pending.round >= MAX_CANVAS_TOOL_ROUNDS) {
+            pendingCanvasActions.delete(pendingActionId);
+            throw new Error(`Canvas Agent exceeded the ${MAX_CANVAS_TOOL_ROUNDS}-round tool-call limit.`);
         }
-
-        saveSession(pending.sessionId, session);
+        pendingCanvasActions.set(pendingActionId, {
+            ...pending,
+            continuation: completed.continuation,
+            traceIds,
+            round: pending.round + 1,
+            createdAt: Date.now(),
+        });
         return {
-            response: aiResponse.content.toString(),
-            traceIds: [...(pending.traceIds || []), ...(completed.traceIds || [])],
-            topic,
-            messageCount: session.messages.length,
+            response: null,
+            actions: completed.actions,
+            pendingActionId,
+            traceIds,
+            topic: getSession(pending.sessionId).topic,
+            messageCount: getSession(pending.sessionId).messages.length,
         };
-    } finally {
-        pendingCanvasActions.delete(pendingActionId);
     }
+
+    const session = getSession(pending.sessionId);
+    const aiResponse = new AIMessage(completed.response);
+    session.messages.push(aiResponse);
+
+    let topic = session.topic;
+    if (session.messages.length === 2 && !topic) {
+        try {
+            topic = await generateTopicTitle(session.messages, pending.modelConfig.apiKey, pending.modelConfig);
+            session.topic = topic;
+        } catch (err) {
+            console.error("Failed to generate topic:", err);
+            topic = "New Chat";
+        }
+    }
+
+    saveSession(pending.sessionId, session);
+    pendingCanvasActions.delete(pendingActionId);
+    return {
+        response: aiResponse.content.toString(),
+        traceIds,
+        topic,
+        messageCount: session.messages.length,
+    };
 }
 
 // ============================================================================

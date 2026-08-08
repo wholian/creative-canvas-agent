@@ -30,7 +30,7 @@ export interface ChatSession {
     messageCount: number;
 }
 
-export interface CanvasAction {
+export interface AddCanvasAction {
     type: 'add_node';
     nodeType: 'image' | 'video';
     prompt: string;
@@ -39,12 +39,31 @@ export interface CanvasAction {
     modelName?: string;
     aspectRatio?: string;
     resolution?: string;
+    expectedSnapshotVersion?: string;
 }
+
+export interface SnapshotCanvasAction { type: 'get_snapshot'; toolCallId: string; }
+export interface UpdateCanvasAction {
+    type: 'update_node'; toolCallId: string; nodeId: string; expectedSnapshotVersion: string;
+    updates: { title?: string; prompt?: string; x?: number; y?: number; model?: string; aspectRatio?: string; resolution?: string };
+}
+export interface DeleteCanvasAction { type: 'delete_node'; toolCallId: string; nodeId: string; expectedSnapshotVersion: string; }
+export interface ConnectionCanvasAction {
+    type: 'connect_nodes' | 'disconnect_nodes'; toolCallId: string;
+    fromNodeId: string; toNodeId: string; expectedSnapshotVersion: string;
+}
+export type CanvasAction = AddCanvasAction | SnapshotCanvasAction | UpdateCanvasAction | DeleteCanvasAction | ConnectionCanvasAction;
 
 export interface CanvasActionExecution {
     toolCallId: string;
     status: 'succeeded' | 'failed';
     nodeId?: string;
+    operation?: 'snapshot' | 'add' | 'update' | 'delete' | 'connect' | 'disconnect';
+    snapshotVersion?: string;
+    snapshot?: unknown;
+    connectionId?: string;
+    deletedConnectionIds?: string[];
+    errorCode?: string;
     error?: string;
 }
 
@@ -240,10 +259,12 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
 
             let data = await response.json();
 
-            // A tool turn pauses here. The browser creates the node first,
-            // then returns the real node ID so the model receives an actual
-            // role=tool execution result rather than a merely accepted action.
-            if (data.pendingActionId && Array.isArray(data.actions)) {
+            // The model may need several tool rounds, for example:
+            // read snapshot -> delete by exact node ID -> give a final answer.
+            let toolRounds = 0;
+            while (data.pendingActionId && Array.isArray(data.actions)) {
+                toolRounds += 1;
+                if (toolRounds > 5) throw new Error('Canvas Agent exceeded the 5-round tool-call limit.');
                 let executions: CanvasActionExecution[] = [];
                 try {
                     executions = await onCanvasActions?.(data.actions as CanvasAction[]) || [];
@@ -271,7 +292,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
             const aiMessage: ChatMessage = {
                 id: generateMessageId(),
                 role: 'assistant',
-                content: data.response,
+                content: data.response || '已完成画布操作。',
                 timestamp: new Date(),
             };
             setMessages(prev => [...prev, aiMessage]);
