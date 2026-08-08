@@ -24,7 +24,8 @@
 - M1-C / C3.3 低成本真实 Provider 与 Tool Call 两轮冒烟验收：完成；
 - M1-C / C3.4 现有 Chat Agent 六类画布工具、多轮循环与浏览器执行闭环：完成；
 - M1-C / C3.5 OpenAI-compatible Gemini 生图 Adapter 与同步路由接入：完成；
-- 当前下一步：进入 E1 GenerationJob 状态机，把同步生图迁入可审批任务；
+- M2 / E1a GenerationJob 纯 Mock 状态机：完成；
+- 当前下一步：进入 E1b，将现有 ExecutionProposal 的批准结果接入 GenerationJob；
 
 ## 1. 推进原则
 
@@ -481,10 +482,13 @@ M1 稳定后才开始。
 
 ### Slice E1：GenerationJob 状态机，纯 Mock
 
-- 创建任务但不调用模型；
-- awaiting_approval → queued → running → succeeded / failed；
-- 创建 Artifact；
-- 取消与有限重试。
+状态：E1a 已完成（2026-08-08）。
+
+- `ExecutionProposal` 继续负责人工批准或拒绝，不在 GenerationJob 中复制审批状态；
+- 批准后才创建任务，第一阶段状态为 queued → running → succeeded / failed；
+- 使用 Mock Executor 创建 Artifact，不调用模型、不产生费用；
+- 同一节点不允许同时存在两个 queued / running 任务；
+- 取消、有限重试和 UI 接线拆到后续小切片。
 
 ### Slice E2：人工审批
 
@@ -556,12 +560,13 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-进入 Slice D1：
+进入 Slice E1b：
 
-- 定义与具体 Agent 框架无关的 `CreativeAgentRuntime`；
-- 定义稳定的 Agent Event；
-- 实现不联网的 `FakeCreativeAgentRuntime`；
-- 测试事件顺序、Abort、Fake Tool Call 与 Fake Tool Result；
-- 暂不安装 Pi，图片、视频继续后置。
+- D1-D5 Creative Agent Runtime 与画布工具迁移已经完成；
+- E1a 已用 Mock Executor 验证 queued → running → succeeded / failed；
+- 用户批准现有 ExecutionProposal 后创建一个 queued GenerationJob；
+- UI 展示任务真实状态，并用 Mock Artifact 更新目标节点；
+- 仍不调用真实模型、不产生费用；
+- E1b 通过后，再把 Mock Executor 替换为已经跑通的图片 Gateway。
 
 当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。

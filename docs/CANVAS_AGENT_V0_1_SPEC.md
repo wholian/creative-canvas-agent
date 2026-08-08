@@ -781,6 +781,10 @@ v0.1 的第一个接入工具为 `request_image_generation`。提案卡 MUST 展
 
 v0.1 只实现单个图片生成提案的内存暂停与恢复。审批持久化、多任务队列、批量审批、权限策略和跨会话恢复在完整 Creative Agent Runtime 阶段统一实现。
 
+E1a 决策：`ExecutionProposal` 独占“等待批准 / 批准 / 拒绝”语义；批准后才创建
+`GenerationJob`，其第一状态为 `queued`。不得在两个对象中同时维护
+`awaiting_approval`，避免审批状态产生双重事实来源。
+
 无论审批策略如何，系统 MUST：
 
 - 在运行前显示模型、关键参数和预计成本（若可得）。
