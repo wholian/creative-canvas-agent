@@ -134,11 +134,15 @@ test('image generation pauses in Runtime for approval before any paid execution'
 
     const completed = await runtime.completeTool(started.id, [{
         toolCallId: 'call-generate', status: 'succeeded', operation: 'request_generation',
-        nodeId: 'image-7', proposalId: proposal.proposalId, resultUrl: '/library/images/image-7.png',
+        nodeId: 'image-7', proposalId: proposal.proposalId,
+        generationJobId: 'job-image-7', generationJobStatus: 'succeeded', artifactId: 'artifact-image-7',
+        resultUrl: '/library/images/image-7.png',
     }]);
     assert.equal(completed.status, 'completed');
     assert.match(invocations[1].messages.at(-1).content, /image-7\.png/);
     assert.match(invocations[1].messages.at(-1).content, /proposal-call-generate/);
+    assert.match(invocations[1].messages.at(-1).content, /job-image-7/);
+    assert.match(invocations[1].messages.at(-1).content, /artifact-image-7/);
 });
 
 test('rejecting image approval returns a tool result without executing generation', async () => {

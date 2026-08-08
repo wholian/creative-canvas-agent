@@ -436,14 +436,18 @@ interface Artifact {
 ```ts
 interface GenerationJob {
   id: string;
-  projectId: string;
-  nodeId: string;
-  mode: "image" | "video" | "audio" | "text";
-  status: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled";
-  modelId: string;
-  normalizedInput: Record<string, unknown>;
-  providerRequestId?: string;
-  outputArtifactIds: string[];
+  proposalId: string;
+  targetNodeId: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  request: {
+    type: "image";
+    prompt: string;
+    modelId: string;
+    aspectRatio: string;
+    quality: string;
+  };
+  attempt: number;
+  artifactId?: string;
   error?: StructuredError;
   createdAt: string;
   updatedAt: string;
@@ -451,6 +455,8 @@ interface GenerationJob {
 ```
 
 创建节点 MUST NOT 自动创建或运行 GenerationJob。
+`awaiting_approval` 属于 ExecutionProposal，不属于 GenerationJob。项目、取消、重试、
+视频任务和供应商请求 ID 在对应切片出现真实需求时扩展，不提前塞入 v0.1 最小对象。
 
 ## 7. Node Definition Registry
 
@@ -784,6 +790,10 @@ v0.1 只实现单个图片生成提案的内存暂停与恢复。审批持久化
 E1a 决策：`ExecutionProposal` 独占“等待批准 / 批准 / 拒绝”语义；批准后才创建
 `GenerationJob`，其第一状态为 `queued`。不得在两个对象中同时维护
 `awaiting_approval`，避免审批状态产生双重事实来源。
+
+E1b 验证说明：浏览器内存中的 Job Manager 仅用于在不产生费用的情况下验证审批卡、
+状态可见性和 Artifact 回写，不改变第 13.1 节的服务端职责。E1c MUST 将 Job 状态源
+迁到服务端内存 Runtime；在此之前，刷新后不恢复 Job 属于明确限制，不得宣称已持久化。
 
 无论审批策略如何，系统 MUST：
 

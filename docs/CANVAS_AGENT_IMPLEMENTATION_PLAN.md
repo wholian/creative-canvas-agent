@@ -25,7 +25,8 @@
 - M1-C / C3.4 现有 Chat Agent 六类画布工具、多轮循环与浏览器执行闭环：完成；
 - M1-C / C3.5 OpenAI-compatible Gemini 生图 Adapter 与同步路由接入：完成；
 - M2 / E1a GenerationJob 纯 Mock 状态机：完成；
-- 当前下一步：进入 E1b，将现有 ExecutionProposal 的批准结果接入 GenerationJob；
+- M2 / E1b 审批卡、可见任务状态与 Mock Artifact 回写：完成；
+- 当前下一步：进入 E1c，将浏览器内存 Job Adapter 移到服务端内存 Runtime；
 
 ## 1. 推进原则
 
@@ -490,6 +491,14 @@ M1 稳定后才开始。
 - 同一节点不允许同时存在两个 queued / running 任务；
 - 取消、有限重试和 UI 接线拆到后续小切片。
 
+E1b 已完成（2026-08-08）：
+
+- 审批卡明确显示 Mock Executor 与 $0，不调用真实图片模型；
+- 用户批准后创建 Job，并在对话框展示 queued / running / succeeded / failed；
+- 成功后创建 Mock Artifact 并更新原图片节点；
+- Tool Result 将 proposalId、generationJobId、artifactId 返回模型；
+- 当前 Job Manager 仍位于浏览器内存，仅用于验证产品闭环；刷新后不恢复，不作为最终持久化方案。
+
 ### Slice E2：人工审批
 
 - Agent 创建 Draft；
@@ -560,13 +569,14 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-进入 Slice E1b：
+进入 Slice E1c：
 
 - D1-D5 Creative Agent Runtime 与画布工具迁移已经完成；
 - E1a 已用 Mock Executor 验证 queued → running → succeeded / failed；
-- 用户批准现有 ExecutionProposal 后创建一个 queued GenerationJob；
-- UI 展示任务真实状态，并用 Mock Artifact 更新目标节点；
-- 仍不调用真实模型、不产生费用；
-- E1b 通过后，再把 Mock Executor 替换为已经跑通的图片 Gateway。
+- E1b 已验证审批 → queued → running → Mock Artifact → 原节点回写；
+- 将 GenerationJobManager 移到服务端内存 Runtime，并提供最小创建/读取接口；
+- 页面只订阅和展示服务端 Job，不再拥有 Job 状态源；
+- 仍使用 Mock Executor，不产生费用；
+- E1c 通过刷新恢复测试后，再把 Mock Executor 替换为已经跑通的图片 Gateway。
 
 当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。

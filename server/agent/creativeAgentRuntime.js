@@ -55,6 +55,9 @@ function executionResult(execution) {
             deleted_connection_ids: execution.deletedConnectionIds,
             result_url: execution.resultUrl,
             proposal_id: execution.proposalId,
+            generation_job_id: execution.generationJobId,
+            generation_job_status: execution.generationJobStatus,
+            artifact_id: execution.artifactId,
         });
     }
     return textResult({

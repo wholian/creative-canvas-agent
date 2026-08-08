@@ -21,8 +21,10 @@ import { useCanvasDomainMirror } from './hooks/useCanvasDomainMirror';
 import { applyAgentCanvasActions } from './canvas-adapters/agentCanvasOperationBridge';
 import { useConnectionDragging } from './hooks/useConnectionDragging';
 import { useNodeDragging } from './hooks/useNodeDragging';
-import { useGeneration, type GenerationExecutionResult } from './hooks/useGeneration';
+import { useGeneration } from './hooks/useGeneration';
 import { prepareImageGenerationProposal } from './agent-runtime/executionProposal';
+import { executeApprovedImageGeneration } from './agent-runtime/generationJobBridge';
+import { createMockImageExecutor, GenerationJobManager, type GenerationJob } from './generation-domain';
 import { useSelectionBox } from './hooks/useSelectionBox';
 import { useGroupManagement } from './hooks/useGroupManagement';
 import { useHistory } from './hooks/useHistory';
@@ -168,9 +170,8 @@ export default function App() {
   // not re-render between add -> connect, so the next round must see the graph
   // produced by the previous round immediately.
   const agentCanvasNodesRef = React.useRef(nodes);
-  const agentGenerationExecutorRef = React.useRef<(nodeId: string) => Promise<GenerationExecutionResult>>(
-    async nodeId => ({ status: 'failed', nodeId, error: 'Image generation is not ready yet.' })
-  );
+  const generationJobManagerRef = React.useRef(new GenerationJobManager());
+  const mockImageExecutorRef = React.useRef(createMockImageExecutor());
   React.useEffect(() => {
     agentCanvasNodesRef.current = nodes;
   }, [nodes]);
@@ -179,7 +180,10 @@ export default function App() {
   // graph for diagnostics while B2 moves supported UI writes incrementally.
   useCanvasDomainMirror({ nodes, viewport, title: canvasTitle });
 
-  const handleAgentCanvasActions = React.useCallback(async (actions: CanvasAction[]): Promise<CanvasActionExecution[]> => {
+  const handleAgentCanvasActions = React.useCallback(async (
+    actions: CanvasAction[],
+    onGenerationJobUpdate?: (job: GenerationJob) => void,
+  ): Promise<CanvasActionExecution[]> => {
     const generationActions = actions.filter(action => action.type === 'request_generation');
     if (generationActions.length > 0) {
       if (generationActions.length !== actions.length || generationActions.length > 1) {
@@ -207,40 +211,77 @@ export default function App() {
       }
 
       if (action.approvalDecision !== 'approved') {
+        const mockProposal = {
+          ...prepared.proposal,
+          display: {
+            ...prepared.proposal.display,
+            estimatedCost: {
+              amount: 0,
+              currency: 'USD' as const,
+              note: 'E1b uses a local Mock Executor. It will not call or charge the configured image model.',
+            },
+          },
+        };
         return [{
           toolCallId: action.toolCallId,
           status: 'awaiting_approval',
           operation: 'request_generation',
           nodeId: action.nodeId,
           snapshotVersion: action.expectedSnapshotVersion,
-          proposalId: prepared.proposal.proposalId,
-          proposal: prepared.proposal,
+          proposalId: mockProposal.proposalId,
+          proposal: mockProposal,
         }];
       }
 
-      const result = await agentGenerationExecutorRef.current(action.nodeId);
-      if (result.status === 'failed') {
+      const updateTargetFromJob = (job: GenerationJob) => {
+        const artifact = job.artifactId
+          ? generationJobManagerRef.current.getArtifact(job.artifactId)
+          : undefined;
+        agentCanvasNodesRef.current = agentCanvasNodesRef.current.map(node => {
+          if (node.id !== action.nodeId) return node;
+          if (job.status === 'failed') {
+            return { ...node, status: NodeStatus.ERROR, errorMessage: job.error?.message };
+          }
+          if (job.status === 'succeeded' && artifact) {
+            return { ...node, status: NodeStatus.SUCCESS, resultUrl: artifact.url, errorMessage: undefined };
+          }
+          return { ...node, status: NodeStatus.LOADING, errorMessage: undefined };
+        });
+        setNodes(agentCanvasNodesRef.current);
+        onGenerationJobUpdate?.(job);
+      };
+
+      const { job, artifact } = await executeApprovedImageGeneration({
+        proposal: prepared.proposal,
+        manager: generationJobManagerRef.current,
+        executor: mockImageExecutorRef.current,
+        onJobUpdate: updateTargetFromJob,
+        queuedDelayMs: 250,
+      });
+      if (job.status === 'failed') {
         return [{
           toolCallId: action.toolCallId,
           status: 'failed',
           operation: 'request_generation',
           nodeId: action.nodeId,
           proposalId: prepared.proposal.proposalId,
+          generationJobId: job.id,
+          generationJobStatus: job.status,
           errorCode: 'generation_failed',
-          error: result.error,
+          error: job.error?.message || 'Mock generation failed.',
         }];
       }
-      agentCanvasNodesRef.current = agentCanvasNodesRef.current.map(node =>
-        node.id === action.nodeId
-          ? { ...node, status: NodeStatus.SUCCESS, resultUrl: result.resultUrl, errorMessage: undefined }
-          : node);
+      if (!artifact) throw new Error('Succeeded GenerationJob returned no Artifact.');
       return [{
         toolCallId: action.toolCallId,
         status: 'succeeded',
         operation: 'request_generation',
         nodeId: action.nodeId,
         proposalId: prepared.proposal.proposalId,
-        resultUrl: result.resultUrl,
+        generationJobId: job.id,
+        generationJobStatus: job.status,
+        artifactId: artifact.id,
+        resultUrl: artifact.url,
       }];
     }
 
@@ -450,7 +491,6 @@ export default function App() {
   const handleGenerateRef = React.useRef(handleGenerate);
   React.useEffect(() => {
     handleGenerateRef.current = handleGenerate;
-    agentGenerationExecutorRef.current = handleGenerate;
   }, [handleGenerate]);
 
   // Create new canvas

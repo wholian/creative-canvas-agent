@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExecutionProposal } from '../agent-runtime/executionProposal.ts';
 import type { AgentClientAction, AgentClientExecution } from '../agent-runtime/clientTools.ts';
 import type { AgentTurn } from '../agent-runtime/types.ts';
+import type { GenerationJob } from '../generation-domain/index.ts';
 
 export type { AgentClientAction as CanvasAction, AgentClientExecution as CanvasActionExecution } from '../agent-runtime/clientTools.ts';
 
@@ -33,7 +34,10 @@ interface RuntimeResponse {
 }
 
 interface UseChatAgentOptions {
-    onCanvasActions?: (actions: AgentClientAction[]) => AgentClientExecution[] | Promise<AgentClientExecution[]>;
+    onCanvasActions?: (
+        actions: AgentClientAction[],
+        onGenerationJobUpdate?: (job: GenerationJob) => void,
+    ) => AgentClientExecution[] | Promise<AgentClientExecution[]>;
 }
 
 interface UseChatAgentReturn {
@@ -46,6 +50,7 @@ interface UseChatAgentReturn {
     isLoadingSessions: boolean;
     pendingApproval: PendingExecutionApproval | null;
     isApprovalExecuting: boolean;
+    activeGenerationJob: GenerationJob | null;
     sendMessage: (content: string, media?: { type: 'image' | 'video'; url: string; base64?: string }[]) => Promise<void>;
     approvePendingApproval: () => Promise<void>;
     rejectPendingApproval: () => Promise<void>;
@@ -91,6 +96,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
     const [pendingApproval, setPendingApproval] = useState<PendingExecutionApproval | null>(null);
     const [isApprovalExecuting, setIsApprovalExecuting] = useState(false);
+    const [activeGenerationJob, setActiveGenerationJob] = useState<GenerationJob | null>(null);
     const didRestoreLatestSessionRef = useRef(false);
 
     const ensureSession = useCallback(() => {
@@ -141,6 +147,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
             if (turn.status === 'failed') throw new Error(turn.error || 'Agent Runtime failed.');
             if (turn.status === 'awaiting_approval') {
                 if (!turn.approval) throw new Error('Agent Runtime returned an empty approval request.');
+                setActiveGenerationJob(null);
                 setPendingApproval({ proposal: turn.approval, turnId: turn.id });
                 return;
             }
@@ -150,7 +157,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
 
             let executions: AgentClientExecution[];
             try {
-                executions = await onCanvasActions?.([turn.action]) || [];
+                executions = await onCanvasActions?.([turn.action], job => setActiveGenerationJob(job)) || [];
             } catch (executionError) {
                 executions = [{
                     toolCallId: turn.action.toolCallId,
@@ -255,6 +262,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
                 timestamp: new Date(message.timestamp || data.createdAt),
             })));
             setTopic(data.topic);
+            setActiveGenerationJob(null);
         } catch (loadError) {
             const message = loadError instanceof Error ? loadError.message : 'Failed to load session';
             setError(message);
@@ -272,6 +280,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
                 setMessages([]);
                 setTopic(null);
                 setSessionId(generateSessionId());
+                setActiveGenerationJob(null);
             }
         } catch (deleteError) {
             console.error('Failed to delete session:', deleteError);
@@ -287,6 +296,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         setTopic(null);
         setSessionId(generateSessionId());
         setError(null);
+        setActiveGenerationJob(null);
     }, [pendingApproval]);
 
     useEffect(() => {
@@ -312,6 +322,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         isLoadingSessions,
         pendingApproval,
         isApprovalExecuting,
+        activeGenerationJob,
         sendMessage,
         approvePendingApproval: () => resolvePendingApproval('approved'),
         rejectPendingApproval: () => resolvePendingApproval('rejected'),

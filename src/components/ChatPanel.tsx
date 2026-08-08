@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { X, History, Paperclip, Globe, Settings, Send, Sparkles, Plus, Loader2, ChevronLeft, Trash2, MessageSquare, ShieldCheck } from 'lucide-react';
+import { X, History, Paperclip, Globe, Settings, Send, Sparkles, Plus, Loader2, ChevronLeft, Trash2, MessageSquare, ShieldCheck, Clock3, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import {
     useChatAgent,
@@ -16,6 +16,7 @@ import {
     ChatSession,
 } from '../hooks/useChatAgent';
 import type { AgentClientAction as CanvasAction, AgentClientExecution as CanvasActionExecution } from '../agent-runtime/clientTools.ts';
+import type { GenerationJob } from '../generation-domain/index.ts';
 import { shouldSubmitChatMessage } from '../utils/chatInputKeyboard';
 
 // ============================================================================
@@ -35,7 +36,10 @@ interface ChatPanelProps {
     userName?: string;
     isDraggingNode?: boolean;
     onNodeDrop?: (nodeId: string, url: string, type: 'image' | 'video') => void;
-    onCanvasActions?: (actions: CanvasAction[]) => CanvasActionExecution[] | Promise<CanvasActionExecution[]>;
+    onCanvasActions?: (
+        actions: CanvasAction[],
+        onGenerationJobUpdate?: (job: GenerationJob) => void,
+    ) => CanvasActionExecution[] | Promise<CanvasActionExecution[]>;
     canvasTheme?: 'dark' | 'light';
 }
 
@@ -71,6 +75,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         isLoadingSessions,
         pendingApproval,
         isApprovalExecuting,
+        activeGenerationJob,
         sendMessage,
         approvePendingApproval,
         rejectPendingApproval,
@@ -416,6 +421,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                             const proposal = pendingApproval.proposal;
                             const parameters = proposal.display.parameters;
                             const estimatedCost = proposal.display.estimatedCost;
+                            const isMockExecution = estimatedCost?.amount === 0;
                             return (
                                 <div className={`my-4 rounded-2xl border p-4 ${isDark ? 'border-cyan-500/40 bg-cyan-950/20' : 'border-cyan-300 bg-cyan-50'}`}>
                                     <div className="flex items-start gap-3">
@@ -470,9 +476,58 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                             className="flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
                                         >
                                             {isApprovalExecuting && <Loader2 size={13} className="animate-spin" />}
-                                            {isApprovalExecuting ? 'Generating…' : 'Confirm & generate'}
+                                            {isApprovalExecuting ? 'Starting…' : isMockExecution ? 'Confirm & run mock' : 'Confirm & generate'}
                                         </button>
                                     </div>
+                                </div>
+                            );
+                        })()}
+
+                        {activeGenerationJob && (() => {
+                            const status = activeGenerationJob.status;
+                            const isDone = status === 'succeeded';
+                            const isFailed = status === 'failed';
+                            const label = status === 'queued' ? 'Queued'
+                                : status === 'running' ? 'Running mock generation'
+                                    : status === 'succeeded' ? 'Mock Artifact ready'
+                                        : 'Mock generation failed';
+                            return (
+                                <div
+                                    data-generation-job-status={status}
+                                    className={`my-4 rounded-2xl border p-4 ${isFailed
+                                        ? isDark ? 'border-red-500/40 bg-red-950/20' : 'border-red-300 bg-red-50'
+                                        : isDone
+                                            ? isDark ? 'border-emerald-500/40 bg-emerald-950/20' : 'border-emerald-300 bg-emerald-50'
+                                            : isDark ? 'border-cyan-500/40 bg-cyan-950/20' : 'border-cyan-300 bg-cyan-50'}`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        {status === 'queued' && <Clock3 size={18} className="text-cyan-400" />}
+                                        {status === 'running' && <Loader2 size={18} className="animate-spin text-cyan-400" />}
+                                        {isDone && <CheckCircle2 size={18} className="text-emerald-400" />}
+                                        {isFailed && <AlertCircle size={18} className="text-red-400" />}
+                                        <div className="min-w-0 flex-1">
+                                            <div className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-neutral-900'}`}>{label}</div>
+                                            <div className={`mt-0.5 truncate text-xs ${isDark ? 'text-neutral-400' : 'text-neutral-600'}`}>
+                                                {activeGenerationJob.targetNodeId} · {activeGenerationJob.id}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className={`mt-3 grid grid-cols-2 gap-x-3 gap-y-2 rounded-xl p-3 text-xs ${isDark ? 'bg-black/20 text-neutral-300' : 'bg-white/80 text-neutral-700'}`}>
+                                        <span className="text-neutral-500">Model</span>
+                                        <span className="text-right">Mock Executor ($0)</span>
+                                        <span className="text-neutral-500">Requested model</span>
+                                        <span className="text-right">{activeGenerationJob.request.modelId}</span>
+                                        <span className="text-neutral-500">Format</span>
+                                        <span className="text-right">{activeGenerationJob.request.aspectRatio} · {activeGenerationJob.request.quality}</span>
+                                        <span className="text-neutral-500">Attempt</span>
+                                        <span className="text-right">{activeGenerationJob.attempt}</span>
+                                    </div>
+                                    {activeGenerationJob.artifactId && (
+                                        <p className={`mt-2 text-[11px] ${isDark ? 'text-neutral-500' : 'text-neutral-500'}`}>Artifact: {activeGenerationJob.artifactId}</p>
+                                    )}
+                                    {activeGenerationJob.error && (
+                                        <p className="mt-2 text-xs text-red-400">{activeGenerationJob.error.message}</p>
+                                    )}
                                 </div>
                             );
                         })()}

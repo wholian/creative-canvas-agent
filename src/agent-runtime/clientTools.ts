@@ -3,6 +3,7 @@ import type {
     AgentCanvasExecution,
 } from '../canvas-adapters/agentCanvasOperationBridge.ts';
 import type { ExecutionProposal } from './executionProposal.ts';
+import type { GenerationJobStatus } from '../generation-domain/index.ts';
 
 export interface RequestImageGenerationAction {
     type: 'request_generation';
@@ -23,6 +24,9 @@ export interface ImageGenerationExecution {
     snapshotVersion?: string;
     proposalId?: string;
     proposal?: ExecutionProposal;
+    generationJobId?: string;
+    generationJobStatus?: GenerationJobStatus;
+    artifactId?: string;
     resultUrl?: string;
     errorCode?: string;
     error?: string;
