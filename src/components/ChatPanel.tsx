@@ -421,7 +421,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                             const proposal = pendingApproval.proposal;
                             const parameters = proposal.display.parameters;
                             const estimatedCost = proposal.display.estimatedCost;
-                            const isMockExecution = estimatedCost?.amount === 0;
                             return (
                                 <div className={`my-4 rounded-2xl border p-4 ${isDark ? 'border-cyan-500/40 bg-cyan-950/20' : 'border-cyan-300 bg-cyan-50'}`}>
                                     <div className="flex items-start gap-3">
@@ -476,7 +475,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                             className="flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
                                         >
                                             {isApprovalExecuting && <Loader2 size={13} className="animate-spin" />}
-                                            {isApprovalExecuting ? 'Starting…' : isMockExecution ? 'Confirm & run mock' : 'Confirm & generate'}
+                                            {isApprovalExecuting ? 'Starting…' : 'Confirm & generate'}
                                         </button>
                                     </div>
                                 </div>
@@ -488,9 +487,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                             const isDone = status === 'succeeded';
                             const isFailed = status === 'failed';
                             const label = status === 'queued' ? 'Queued'
-                                : status === 'running' ? 'Running mock generation'
-                                    : status === 'succeeded' ? 'Mock Artifact ready'
-                                        : 'Mock generation failed';
+                                : status === 'running' ? 'Generating image'
+                                    : status === 'succeeded' ? 'Image ready'
+                                        : 'Image generation failed';
                             return (
                                 <div
                                     data-generation-job-status={status}
@@ -513,9 +512,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                         </div>
                                     </div>
                                     <div className={`mt-3 grid grid-cols-2 gap-x-3 gap-y-2 rounded-xl p-3 text-xs ${isDark ? 'bg-black/20 text-neutral-300' : 'bg-white/80 text-neutral-700'}`}>
+                                        <span className="text-neutral-500">Executor</span>
+                                        <span className="text-right">Unified Image Gateway</span>
                                         <span className="text-neutral-500">Model</span>
-                                        <span className="text-right">Mock Executor ($0)</span>
-                                        <span className="text-neutral-500">Requested model</span>
                                         <span className="text-right">{activeGenerationJob.request.modelId}</span>
                                         <span className="text-neutral-500">Format</span>
                                         <span className="text-right">{activeGenerationJob.request.aspectRatio} · {activeGenerationJob.request.quality}</span>

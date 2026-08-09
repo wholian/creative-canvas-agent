@@ -24,7 +24,8 @@ import { useNodeDragging } from './hooks/useNodeDragging';
 import { useGeneration } from './hooks/useGeneration';
 import { prepareImageGenerationProposal } from './agent-runtime/executionProposal';
 import { executeApprovedImageGeneration } from './agent-runtime/generationJobBridge';
-import { createMockImageExecutor, GenerationJobManager, type GenerationJob } from './generation-domain';
+import { createHttpImageExecutor } from './agent-runtime/httpImageExecutor';
+import { GenerationJobManager, type GenerationJob } from './generation-domain';
 import { useSelectionBox } from './hooks/useSelectionBox';
 import { useGroupManagement } from './hooks/useGroupManagement';
 import { useHistory } from './hooks/useHistory';
@@ -173,7 +174,7 @@ export default function App() {
   // produced by the previous round immediately.
   const agentCanvasNodesRef = React.useRef(nodes);
   const generationJobManagerRef = React.useRef(new GenerationJobManager());
-  const mockImageExecutorRef = React.useRef(createMockImageExecutor());
+  const imageExecutorRef = React.useRef(createHttpImageExecutor(generateImage));
   React.useEffect(() => {
     agentCanvasNodesRef.current = nodes;
   }, [nodes]);
@@ -215,25 +216,14 @@ export default function App() {
       }
 
       if (action.approvalDecision !== 'approved') {
-        const mockProposal = {
-          ...prepared.proposal,
-          display: {
-            ...prepared.proposal.display,
-            estimatedCost: {
-              amount: 0,
-              currency: 'USD' as const,
-              note: 'E1b uses a local Mock Executor. It will not call or charge the configured image model.',
-            },
-          },
-        };
         return [{
           toolCallId: action.toolCallId,
           status: 'awaiting_approval',
           operation: 'request_generation',
           nodeId: action.nodeId,
           nodeVersion: action.expectedNodeVersion,
-          proposalId: mockProposal.proposalId,
-          proposal: mockProposal,
+          proposalId: prepared.proposal.proposalId,
+          proposal: prepared.proposal,
         }];
       }
 
@@ -258,9 +248,8 @@ export default function App() {
       const { job, artifact } = await executeApprovedImageGeneration({
         proposal: prepared.proposal,
         manager: generationJobManagerRef.current,
-        executor: mockImageExecutorRef.current,
+        executor: imageExecutorRef.current,
         onJobUpdate: updateTargetFromJob,
-        queuedDelayMs: 250,
       });
       if (job.status === 'failed') {
         return [{
@@ -272,7 +261,7 @@ export default function App() {
           generationJobId: job.id,
           generationJobStatus: job.status,
           errorCode: 'generation_failed',
-          error: job.error?.message || 'Mock generation failed.',
+          error: job.error?.message || 'Image generation failed.',
         }];
       }
       if (!artifact) throw new Error('Succeeded GenerationJob returned no Artifact.');

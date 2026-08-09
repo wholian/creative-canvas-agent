@@ -26,6 +26,7 @@
 - M1-C / C3.5 OpenAI-compatible Gemini 生图 Adapter 与同步路由接入：完成；
 - M2 / E1a GenerationJob 纯 Mock 状态机：完成；
 - M2 / E1b 审批卡、可见任务状态与 Mock Artifact 回写：完成；
+- M2 / E1b.1 审批后真实图片 Gateway 执行与 Artifact 回写：完成；
 - 当前下一步：进入 E1c，将浏览器内存 Job Adapter 移到服务端内存 Runtime；
 
 ## 1. 推进原则
@@ -499,6 +500,13 @@ E1b 已完成（2026-08-08）：
 - Tool Result 将 proposalId、generationJobId、artifactId 返回模型；
 - 当前 Job Manager 仍位于浏览器内存，仅用于验证产品闭环；刷新后不恢复，不作为最终持久化方案。
 
+E1b.1 已完成（2026-08-09）：
+
+- 用户明确批准后，`GenerationJob` 通过统一 `/api/generate-image` 入口执行一次真实生图；
+- Job 中冻结的 Prompt、模型、比例和质量原样传入 Image Gateway；
+- 成功结果创建 Artifact 并回写原节点，Provider 错误则进入 failed；
+- 这是用户确认的过渡顺序：真实执行已接入，但 Job Manager 仍在浏览器内存，刷新时不保证恢复进行中任务。
+
 ### Slice E2：人工审批
 
 - Agent 创建 Draft；
@@ -576,7 +584,7 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 - E1b 已验证审批 → queued → running → Mock Artifact → 原节点回写；
 - 将 GenerationJobManager 移到服务端内存 Runtime，并提供最小创建/读取接口；
 - 页面只订阅和展示服务端 Job，不再拥有 Job 状态源；
-- 仍使用 Mock Executor，不产生费用；
-- E1c 通过刷新恢复测试后，再把 Mock Executor 替换为已经跑通的图片 Gateway。
+- 保留已接入的真实图片 Gateway，将其执行位置从页面迁入服务端 Job Runtime；
+- 通过刷新恢复测试，明确进行中和已完成任务的恢复语义。
 
 当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。

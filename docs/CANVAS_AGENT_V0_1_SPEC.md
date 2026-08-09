@@ -796,9 +796,11 @@ E1a 决策：`ExecutionProposal` 独占“等待批准 / 批准 / 拒绝”语�
 `GenerationJob`，其第一状态为 `queued`。不得在两个对象中同时维护
 `awaiting_approval`，避免审批状态产生双重事实来源。
 
-E1b 验证说明：浏览器内存中的 Job Manager 仅用于在不产生费用的情况下验证审批卡、
-状态可见性和 Artifact 回写，不改变第 13.1 节的服务端职责。E1c MUST 将 Job 状态源
-迁到服务端内存 Runtime；在此之前，刷新后不恢复 Job 属于明确限制，不得宣称已持久化。
+E1b 先用 Mock Executor 验证审批卡、状态可见性和 Artifact 回写。
+E1b.1 经用户确认后将审批后执行接到真实 Image Gateway；每次批准只允许创建一个 Job
+并发起一次生图请求。当前 Job Manager 仍位于浏览器内存，不改变第 13.1 节的服务端
+职责。E1c MUST 将 Job 状态源迁到服务端 Runtime；在此之前，刷新后不恢复 Job
+属于明确限制，不得宣称已持久化。
 
 无论审批策略如何，系统 MUST：
 
