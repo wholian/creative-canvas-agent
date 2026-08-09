@@ -24,6 +24,7 @@
 - M1-C / C3.3 低成本真实 Provider 与 Tool Call 两轮冒烟验收：完成；
 - M1-C / C3.4 现有 Chat Agent 六类画布工具、多轮循环与浏览器执行闭环：完成；
 - M1-C / C3.5 OpenAI-compatible Gemini 生图 Adapter 与同步路由接入：完成；
+- M1-C / C3.6 Agent Turn 页面刷新重连、互斥写入与付费防重放：完成；
 - M2 / E1a GenerationJob 纯 Mock 状态机：完成；
 - M2 / E1b 审批卡、可见任务状态与 Mock Artifact 回写：完成；
 - M2 / E1b.1 审批后真实图片 Gateway 执行与 Artifact 回写：完成；
@@ -588,3 +589,6 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 - 通过刷新恢复测试，明确进行中和已完成任务的恢复语义。
 
 当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。
+
+C3.6 已验证：同一服务进程内，页面刷新会恢复原 active Turn 的工具或审批边界；
+已批准但执行结果未知的付费生成不会自动重放；并发消息在未成功占用 Turn 时不写入历史。

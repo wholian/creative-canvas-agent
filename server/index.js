@@ -1263,6 +1263,20 @@ app.get('/api/chat/sessions', async (req, res) => {
     }
 });
 
+// Reconnect a refreshed browser to the current in-memory Agent turn. This may
+// briefly wait while a model request reaches its next tool/final boundary.
+app.get('/api/chat/sessions/:id/active-turn', async (req, res) => {
+    try {
+        const result = await chatAgent.resumeActiveTurn(req.params.id, {
+            agentRuntime: CREATIVE_AGENT_RUNTIME,
+        });
+        res.json(result ? { success: true, ...result } : { success: true, turn: null });
+    } catch (error) {
+        console.error('Agent turn reconnect error:', error);
+        res.status(500).json({ error: error.message || 'Agent turn reconnect failed' });
+    }
+});
+
 // Delete a chat session
 app.delete('/api/chat/sessions/:id', async (req, res) => {
     try {

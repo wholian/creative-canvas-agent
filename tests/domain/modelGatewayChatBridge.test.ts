@@ -105,6 +105,69 @@ test('Pi Runtime owns multiple tool rounds instead of exposing a serialized cont
     assert.equal(invocations.length, 3);
 });
 
+test('a refreshed client reconnects to the same pending tool turn', async () => {
+    const invocations: Array<Record<string, any>> = [];
+    const runtime = runtimeFor([{
+        traceId: 'trace-reconnect-read',
+        message: { role: 'assistant', content: '', toolCalls: [{
+            id: 'call-reconnect-read', name: 'get_canvas_snapshot', arguments: {},
+        }] },
+    }, {
+        traceId: 'trace-reconnect-final',
+        message: { role: 'assistant', content: '已恢复并读取画布。' },
+    }], invocations);
+
+    const firstBoundary = await runtime.startTurn({ sessionId: 'session-reconnect', message: '读取画布' });
+    const reconnected = await runtime.resumeActiveTurn('session-reconnect');
+    assert.equal(reconnected?.id, firstBoundary.id);
+    assert.equal(reconnected?.status, 'awaiting_tool');
+    assert.equal(reconnected?.action?.toolCallId, 'call-reconnect-read');
+    assert.throws(
+        () => runtime.startTurn({ sessionId: 'session-reconnect', message: '这条不应该被接受' }),
+        /already has an active Agent turn/,
+    );
+
+    const completed = await runtime.completeTool(firstBoundary.id, [{
+        toolCallId: 'call-reconnect-read', status: 'succeeded', operation: 'snapshot',
+        snapshotVersion: 'canvas-reconnected', snapshot: { nodes: [], connections: [] },
+    }]);
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.response, '已恢复并读取画布。');
+});
+
+test('reconnect never replays an approved paid generation', async () => {
+    const invocations: Array<Record<string, any>> = [];
+    const runtime = runtimeFor([{
+        traceId: 'trace-paid-request',
+        message: { role: 'assistant', content: '', toolCalls: [{
+            id: 'call-paid-generate', name: 'request_image_generation',
+            arguments: { node_id: 'image-paid', expected_node_version: 'node-v1-paid' },
+        }] },
+    }, {
+        traceId: 'trace-paid-unknown',
+        message: { role: 'assistant', content: '生成结果未知，请先检查画布和素材库。' },
+    }], invocations);
+
+    const started = await runtime.startTurn({ sessionId: 'session-paid-reconnect', message: '生成图片' });
+    const proposal = {
+        proposalId: 'proposal-paid', toolCallId: 'call-paid-generate', toolName: 'request_image_generation',
+        target: { type: 'canvas_node' as const, id: 'image-paid', expectedRevision: 'node-v1-paid' },
+        status: 'awaiting_approval' as const,
+        display: { title: '生成图片', summary: '会产生费用', parameters: {} }, arguments: {},
+    };
+    await runtime.completeTool(started.id, [{
+        toolCallId: 'call-paid-generate', status: 'awaiting_approval', operation: 'request_generation', proposal,
+    }]);
+    const approved = await runtime.resolveApproval(started.id, 'approved');
+    assert.equal(approved.status, 'awaiting_tool');
+
+    const recovered = await runtime.resumeActiveTurn('session-paid-reconnect');
+    assert.equal(recovered?.status, 'completed');
+    assert.match(invocations[1].messages.at(-1).content, /generation_outcome_unknown_after_reconnect/);
+    assert.match(invocations[1].messages.at(-1).content, /Do not retry automatically/);
+    assert.equal(invocations.length, 2);
+});
+
 test('stale node result gives the Agent the current node for an automatic retry', async () => {
     const invocations: Array<Record<string, any>> = [];
     const runtime = runtimeFor([{

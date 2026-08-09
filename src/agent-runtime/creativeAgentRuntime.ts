@@ -9,6 +9,7 @@ export interface StartAgentTurnInput {
 
 export interface CreativeAgentRuntime {
     startTurn(input: StartAgentTurnInput): Promise<AgentTurn>;
+    resumeActiveTurn(sessionId: string): Promise<AgentTurn | undefined>;
     completeTool(turnId: string, executions: AgentClientExecution[]): Promise<AgentTurn>;
     resolveApproval(turnId: string, decision: 'approved' | 'rejected'): Promise<AgentTurn>;
     getTurn(turnId: string): AgentTurn | undefined;

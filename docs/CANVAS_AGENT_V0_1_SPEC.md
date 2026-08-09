@@ -188,6 +188,7 @@ Pi 不负责：
 ```ts
 interface CreativeAgentRuntime {
   startTurn(input: AgentTurnInput): Promise<AgentTurn>;
+  resumeActiveTurn(sessionId: string): Promise<AgentTurn | undefined>;
   resolveApproval(proposalId: string, decision: "approved" | "rejected"): Promise<AgentTurn>;
   completeTool(toolCallId: string, result: CanvasOperationResult | GenerationResult): Promise<AgentTurn>;
   getTurn(turnId: string): AgentTurn | undefined;
@@ -269,7 +270,7 @@ Runtime 禁止：
 第一阶段不实现：
 
 - SSE 或 WebSocket；
-- File Store、SQLite 和跨刷新恢复；
+- File Store、SQLite 和跨服务重启的 Turn 恢复；
 - 通用 Event Bus；
 - 视频生成；
 - 删除审批；
@@ -278,6 +279,15 @@ Runtime 禁止：
 - 自动重试和复杂任务队列。
 
 这些能力只有在当前闭环无法满足下一项真实需求时，才进入下一轮设计。
+
+同一服务进程内的页面刷新 MUST 调用 `resumeActiveTurn(sessionId)`。等待普通工具或
+审批的 Turn 应恢复到原 Turn ID，不得新建并发 Turn。如果页面在已批准付费生成后
+中断，由于当前 GenerationJob 尚未迁移至服务端，Runtime MUST 将结果标记为
+`generation_outcome_unknown_after_reconnect`，禁止自动重放付费请求。
+
+会话对同一时刻的 active Turn MUST 互斥。新用户消息只能在 Runtime 成功占用 Turn 后
+写入持久化历史；因 active Turn 被拒绝的消息不得污染对话记录。最终 Assistant
+回复 MUST 使用 Turn ID 幂等写入。
 
 ### 5.6 最小实施步骤与验收（已实现）
 
@@ -290,6 +300,8 @@ Runtime 禁止：
 第一阶段只验收：
 
 - Runtime 使用 Fake Model Gateway 时无网络可运行；
+- 刷新后能接管同一个等待工具或审批的 Turn；
+- 刷新不得自动重放已批准的付费生成；
 - Tool Result 正确进入下一轮模型输入；
 - Reject 不调用生图执行器；
 - Approve 只执行一次；

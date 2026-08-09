@@ -19,6 +19,7 @@ function normalizeStoredMessage(message) {
         role: message.role === 'assistant' ? 'assistant' : 'user',
         content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
         ...(Array.isArray(message.media) ? { media: message.media } : {}),
+        ...(typeof message.agentTurnId === 'string' ? { agentTurnId: message.agentTurnId } : {}),
         timestamp: message.timestamp || new Date().toISOString(),
     };
 }
@@ -134,8 +135,10 @@ function responseFromTurn(turn, session) {
 
 function finalizeTurn(turn) {
     const session = getSession(turn.sessionId);
-    if (turn.status === 'completed') {
-        session.messages.push(normalizeStoredMessage({ role: 'assistant', content: turn.response }));
+    if (turn.status === 'completed' && !session.messages.some(message => message.agentTurnId === turn.id)) {
+        session.messages.push(normalizeStoredMessage({
+            role: 'assistant', content: turn.response, agentTurnId: turn.id,
+        }));
         if (!session.topic) session.topic = createTopic(session.messages.find(message => message.role === 'user')?.content);
         saveSession(turn.sessionId, session);
     }
@@ -146,18 +149,28 @@ export async function sendMessage(sessionId, content, media, { agentRuntime }) {
     if (!agentRuntime) throw new Error('Creative Agent Runtime is disabled. Set CREATIVE_MODEL_GATEWAY_ENABLED=true.');
     const session = getSession(sessionId);
     const history = session.messages.map(({ role, content: messageContent }) => ({ role, content: messageContent }));
+    const input = runtimeInput(content, media);
+    // startTurn reserves the session synchronously. Only persist the user
+    // message after the reservation succeeds, otherwise a rejected concurrent
+    // send would pollute the durable chat history.
+    const turnPromise = agentRuntime.startTurn({
+        sessionId,
+        message: input,
+        history,
+    });
     session.messages.push(normalizeStoredMessage({
         role: 'user',
-        content: runtimeInput(content, media),
+        content: input,
         media: serializeMedia(media),
     }));
     saveSession(sessionId, session);
-    const turn = await agentRuntime.startTurn({
-        sessionId,
-        message: runtimeInput(content, media),
-        history,
-    });
-    return finalizeTurn(turn);
+    return finalizeTurn(await turnPromise);
+}
+
+export async function resumeActiveTurn(sessionId, { agentRuntime }) {
+    if (!agentRuntime) throw new Error('Creative Agent Runtime is unavailable.');
+    const turn = await agentRuntime.resumeActiveTurn(sessionId);
+    return turn ? finalizeTurn(turn) : null;
 }
 
 export async function completeCanvasAction(turnId, executions, { agentRuntime }) {
@@ -176,6 +189,7 @@ export default {
     listSessions,
     getSessionData,
     sendMessage,
+    resumeActiveTurn,
     completeCanvasAction,
     resolveCanvasApproval,
 };

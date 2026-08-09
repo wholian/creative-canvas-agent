@@ -263,6 +263,15 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
             })));
             setTopic(data.topic);
             setActiveGenerationJob(null);
+            setPendingApproval(null);
+
+            const activeResponse = await fetch(`/api/chat/sessions/${targetSessionId}/active-turn`);
+            if (!activeResponse.ok) {
+                const activeError = await activeResponse.json().catch(() => ({}));
+                throw new Error(activeError.error || 'Failed to reconnect the active Agent turn.');
+            }
+            const activeData = await activeResponse.json() as RuntimeResponse & { turn: AgentTurn | null };
+            if (activeData.turn) await consumeRuntimeResponse(activeData as RuntimeResponse);
         } catch (loadError) {
             const message = loadError instanceof Error ? loadError.message : 'Failed to load session';
             setError(message);
@@ -270,7 +279,7 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [consumeRuntimeResponse]);
 
     const deleteSession = useCallback(async (targetSessionId: string) => {
         try {

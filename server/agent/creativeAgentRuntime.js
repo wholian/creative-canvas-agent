@@ -287,7 +287,7 @@ export class CreativeAgentRuntime {
         return new Promise(resolve => session.waiters.push(resolve));
     }
 
-    async startTurn({ sessionId, message, history = [] }) {
+    startTurn({ sessionId, message, history = [] }) {
         let session = this.sessions.get(sessionId);
         if (!session) session = this.createSession(sessionId, history);
         if (session.runPromise) throw new Error('This chat session already has an active Agent turn.');
@@ -326,6 +326,36 @@ export class CreativeAgentRuntime {
                 session.runPromise = undefined;
                 session.pending = undefined;
             });
+        return this.waitForBoundary(session);
+    }
+
+    async resumeActiveTurn(sessionId) {
+        const session = this.sessions.get(sessionId);
+        if (!session?.runPromise || !session.turn) return undefined;
+
+        // A paid browser-side request may already have left the page before a
+        // refresh. Replaying it would risk charging twice, so close that tool
+        // round as outcome-unknown and let the Agent report it without retrying.
+        if (session.turn.status === 'awaiting_tool'
+            && session.turn.action?.type === 'request_generation'
+            && session.turn.action.approvalDecision === 'approved'
+            && session.pending) {
+            const pending = session.pending;
+            session.pending = undefined;
+            session.turn.status = 'running';
+            delete session.turn.action;
+            delete session.turn.approval;
+            const boundary = this.waitForBoundary(session);
+            pending.resolve(executionResult({
+                toolCallId: pending.toolCallId,
+                status: 'failed',
+                operation: 'request_generation',
+                errorCode: 'generation_outcome_unknown_after_reconnect',
+                error: 'The browser reconnected after approving generation. The previous paid request outcome is unknown. Do not retry automatically; ask the user to inspect the canvas or artifact library before approving another generation.',
+            }));
+            return boundary;
+        }
+
         return this.waitForBoundary(session);
     }
 
