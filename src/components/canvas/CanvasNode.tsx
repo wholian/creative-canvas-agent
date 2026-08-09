@@ -199,6 +199,7 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
   if (data.type === NodeType.IMAGE_EDITOR) {
     return (
       <div
+        data-canvas-node-id={data.id}
         className={`absolute flex items-center group/node touch-none pointer-events-auto`}
         style={{
           transform: `translate(${data.x}px, ${data.y}px)`,
@@ -259,6 +260,7 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
   if (data.type === NodeType.CAMERA_ANGLE) {
     return (
       <div
+        data-canvas-node-id={data.id}
         className={`absolute flex items-center group/node touch-none pointer-events-auto`}
         style={{
           transform: `translate(${data.x}px, ${data.y}px)`,
@@ -476,6 +478,7 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
 
     return (
       <div
+        data-canvas-node-id={data.id}
         className={`absolute flex items-center group/node touch-none pointer-events-auto`}
         style={{
           transform: `translate(${data.x}px, ${data.y}px)`,
@@ -546,6 +549,7 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
 
   return (
     <div
+      data-canvas-node-id={data.id}
       className={`absolute group/node touch-none pointer-events-auto`}
       style={{
         transform: `translate(${data.x}px, ${data.y}px)`,

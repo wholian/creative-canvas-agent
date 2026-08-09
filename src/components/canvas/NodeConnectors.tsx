@@ -30,6 +30,9 @@ export const NodeConnectors: React.FC<NodeConnectorsProps> = ({
         <>
             {/* Left Connector */}
             <button
+                data-canvas-connector="true"
+                data-canvas-node-id={nodeId}
+                data-canvas-connector-side="left"
                 onPointerDown={(e) => {
                     e.stopPropagation();
                     onConnectorDown(e, nodeId, 'left');
@@ -41,6 +44,9 @@ export const NodeConnectors: React.FC<NodeConnectorsProps> = ({
 
             {/* Right Connector */}
             <button
+                data-canvas-connector="true"
+                data-canvas-node-id={nodeId}
+                data-canvas-connector-side="right"
                 onPointerDown={(e) => {
                     e.stopPropagation();
                     onConnectorDown(e, nodeId, 'right');
