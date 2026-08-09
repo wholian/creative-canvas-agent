@@ -67,6 +67,19 @@ test('image generation proposal ignores layout-only changes', () => {
     assert.equal(result.status, 'awaiting_approval');
 });
 
+test('approved generation may reattach while its node is loading', () => {
+    const original = imageNode();
+    const expectedNodeVersion = createAgentCanvasSnapshot([original], 'Film').nodes[0].nodeVersion;
+    const loading = imageNode({ status: 'loading' as NodeData['status'] });
+    const result = prepareImageGenerationProposal({
+        toolCallId: 'call-reattach', nodeId: 'image-1', expectedNodeVersion, approvalDecision: 'approved',
+    }, [loading], 'Film');
+
+    assert.equal(result.status, 'awaiting_approval');
+    if (result.status !== 'awaiting_approval') return;
+    assert.equal(result.proposal.proposalId, 'proposal-call-reattach');
+});
+
 test('image generation proposal rejects unsupported or incomplete targets', () => {
     const node = imageNode({ type: 'Video' as NodeData['type'] });
     const snapshot = createAgentCanvasSnapshot([node], 'Film');

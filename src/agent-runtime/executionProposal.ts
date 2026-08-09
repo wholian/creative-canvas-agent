@@ -36,6 +36,7 @@ export interface ImageGenerationRequestActionLike {
     toolCallId: string;
     nodeId: string;
     expectedNodeVersion: string;
+    approvalDecision?: 'approved';
 }
 
 export type PrepareExecutionProposalResult =
@@ -98,7 +99,7 @@ export function prepareImageGenerationProposal(
             snapshotVersion: snapshot.snapshotVersion,
         };
     }
-    if (node.status === 'loading') {
+    if (node.status === 'loading' && action.approvalDecision !== 'approved') {
         return {
             status: 'failed',
             errorCode: 'generation_already_running',

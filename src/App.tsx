@@ -23,9 +23,8 @@ import { useConnectionDragging } from './hooks/useConnectionDragging';
 import { useNodeDragging } from './hooks/useNodeDragging';
 import { useGeneration } from './hooks/useGeneration';
 import { prepareImageGenerationProposal } from './agent-runtime/executionProposal';
-import { executeApprovedImageGeneration } from './agent-runtime/generationJobBridge';
-import { createHttpImageExecutor } from './agent-runtime/httpImageExecutor';
-import { GenerationJobManager, type GenerationJob } from './generation-domain';
+import { createServerGenerationJobClient, type ServerGenerationJobSnapshot } from './agent-runtime/serverGenerationJobClient';
+import type { GenerationJob } from './generation-domain';
 import { useSelectionBox } from './hooks/useSelectionBox';
 import { useGroupManagement } from './hooks/useGroupManagement';
 import { useHistory } from './hooks/useHistory';
@@ -173,8 +172,7 @@ export default function App() {
   // not re-render between add -> connect, so the next round must see the graph
   // produced by the previous round immediately.
   const agentCanvasNodesRef = React.useRef(nodes);
-  const generationJobManagerRef = React.useRef(new GenerationJobManager());
-  const imageExecutorRef = React.useRef(createHttpImageExecutor(generateImage));
+  const serverGenerationJobClientRef = React.useRef(createServerGenerationJobClient());
   React.useEffect(() => {
     agentCanvasNodesRef.current = nodes;
   }, [nodes]);
@@ -227,10 +225,7 @@ export default function App() {
         }];
       }
 
-      const updateTargetFromJob = (job: GenerationJob) => {
-        const artifact = job.artifactId
-          ? generationJobManagerRef.current.getArtifact(job.artifactId)
-          : undefined;
+      const updateTargetFromJob = ({ job, artifact }: ServerGenerationJobSnapshot) => {
         agentCanvasNodesRef.current = agentCanvasNodesRef.current.map(node => {
           if (node.id !== action.nodeId) return node;
           if (job.status === 'failed') {
@@ -245,12 +240,10 @@ export default function App() {
         onGenerationJobUpdate?.(job);
       };
 
-      const { job, artifact } = await executeApprovedImageGeneration({
-        proposal: prepared.proposal,
-        manager: generationJobManagerRef.current,
-        executor: imageExecutorRef.current,
-        onJobUpdate: updateTargetFromJob,
-      });
+      const { job, artifact } = await serverGenerationJobClientRef.current.executeApprovedImage(
+        prepared.proposal,
+        snapshot => updateTargetFromJob(snapshot),
+      );
       if (job.status === 'failed') {
         return [{
           toolCallId: action.toolCallId,

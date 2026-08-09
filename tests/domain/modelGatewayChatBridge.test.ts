@@ -135,7 +135,7 @@ test('a refreshed client reconnects to the same pending tool turn', async () => 
     assert.equal(completed.response, '已恢复并读取画布。');
 });
 
-test('reconnect never replays an approved paid generation', async () => {
+test('reconnect exposes the same approved generation action for server-job reattachment', async () => {
     const invocations: Array<Record<string, any>> = [];
     const runtime = runtimeFor([{
         traceId: 'trace-paid-request',
@@ -143,9 +143,6 @@ test('reconnect never replays an approved paid generation', async () => {
             id: 'call-paid-generate', name: 'request_image_generation',
             arguments: { node_id: 'image-paid', expected_node_version: 'node-v1-paid' },
         }] },
-    }, {
-        traceId: 'trace-paid-unknown',
-        message: { role: 'assistant', content: '生成结果未知，请先检查画布和素材库。' },
     }], invocations);
 
     const started = await runtime.startTurn({ sessionId: 'session-paid-reconnect', message: '生成图片' });
@@ -162,10 +159,13 @@ test('reconnect never replays an approved paid generation', async () => {
     assert.equal(approved.status, 'awaiting_tool');
 
     const recovered = await runtime.resumeActiveTurn('session-paid-reconnect');
-    assert.equal(recovered?.status, 'completed');
-    assert.match(invocations[1].messages.at(-1).content, /generation_outcome_unknown_after_reconnect/);
-    assert.match(invocations[1].messages.at(-1).content, /Do not retry automatically/);
-    assert.equal(invocations.length, 2);
+    assert.equal(recovered?.status, 'awaiting_tool');
+    assert.equal(recovered?.id, started.id);
+    assert.equal(recovered?.action?.type, 'request_generation');
+    if (recovered?.action?.type === 'request_generation') {
+        assert.equal(recovered.action.approvalDecision, 'approved');
+    }
+    assert.equal(invocations.length, 1);
 });
 
 test('stale node result gives the Agent the current node for an automatic retry', async () => {

@@ -20,6 +20,9 @@ import storyboardRoutes from './routes/storyboard.js';
 import { createCanvasChatModelGatewayRuntime } from './agent/modelGatewayRuntime.js';
 import { CreativeAgentRuntime } from './agent/creativeAgentRuntime.js';
 import { createImageModelGatewayRuntime } from './imageModelGatewayRuntime.js';
+import { ServerGenerationJobRuntime } from './generationJobRuntime.js';
+import { createGatewayImageJobExecutor } from './gatewayImageJobExecutor.js';
+import { createGenerationJobsRouter } from './routes/generationJobs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -87,6 +90,13 @@ const IMAGE_MODEL_GATEWAY_RUNTIME = CREATIVE_IMAGE_MODEL_GATEWAY_ENABLED
         timeoutMs: Number(process.env.CREATIVE_IMAGE_MODEL_GATEWAY_TIMEOUT_MS || 120_000),
     })
     : undefined;
+
+const GENERATION_JOB_RUNTIME = new ServerGenerationJobRuntime({
+    executeImage: createGatewayImageJobExecutor({
+        imageGateway: IMAGE_MODEL_GATEWAY_RUNTIME,
+        imagesDir: IMAGES_DIR,
+    }),
+});
 
 if (!API_KEY) {
     console.warn("SERVER WARNING: GEMINI_API_KEY is not set in environment or .env file.");
@@ -262,6 +272,7 @@ function sanitizeWorkflowNodes(nodes) {
 
 // Mount generation routes (image and video generation)
 app.use('/api', generationRoutes);
+app.use('/api/generation-jobs', createGenerationJobsRouter(GENERATION_JOB_RUNTIME));
 
 // Mount Twitter routes (Post to X feature)
 app.use('/api/twitter', twitterRoutes);

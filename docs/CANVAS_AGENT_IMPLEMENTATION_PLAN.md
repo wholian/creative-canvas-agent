@@ -28,7 +28,8 @@
 - M2 / E1a GenerationJob 纯 Mock 状态机：完成；
 - M2 / E1b 审批卡、可见任务状态与 Mock Artifact 回写：完成；
 - M2 / E1b.1 审批后真实图片 Gateway 执行与 Artifact 回写：完成；
-- 当前下一步：进入 E1c，将浏览器内存 Job Adapter 移到服务端内存 Runtime；
+- M2 / E1c 服务端内存 Job Runtime、幂等创建、轮询与刷新重连：完成；
+- 当前下一步：浏览器付费生图刷新验收，再决定是否进入 Job 持久化；
 
 ## 1. 推进原则
 
@@ -508,6 +509,14 @@ E1b.1 已完成（2026-08-09）：
 - 成功结果创建 Artifact 并回写原节点，Provider 错误则进入 failed；
 - 这是用户确认的过渡顺序：真实执行已接入，但 Job Manager 仍在浏览器内存，刷新时不保证恢复进行中任务。
 
+E1c 已完成（2026-08-09）：
+
+- `GenerationJobManager` 已移到服务端内存 Runtime，页面只创建或读取 Job；
+- `proposalId` 是付费请求幂等键，相同参数重连返回原 Job，不重复调用 Provider；
+- 前端通过 Job ID 轮询 queued / running / succeeded / failed，成功后回写 Artifact；
+- 页面刷新后重新接管同一 Agent Turn 和同一服务端 Job；
+- 当前仍为服务端内存实现，服务进程重启后不恢复 Job。
+
 ### Slice E2：人工审批
 
 - Agent 创建 Draft；
@@ -578,17 +587,17 @@ M2 出口门槛：一个图片和一个视频任务可控地跑通，用户始�
 
 ## 7. 当前下一步
 
-进入 Slice E1c：
+先完成 E1c 的浏览器真实验收：
 
-- D1-D5 Creative Agent Runtime 与画布工具迁移已经完成；
-- E1a 已用 Mock Executor 验证 queued → running → succeeded / failed；
-- E1b 已验证审批 → queued → running → Mock Artifact → 原节点回写；
-- 将 GenerationJobManager 移到服务端内存 Runtime，并提供最小创建/读取接口；
-- 页面只订阅和展示服务端 Job，不再拥有 Job 状态源；
-- 保留已接入的真实图片 Gateway，将其执行位置从页面迁入服务端 Job Runtime；
-- 通过刷新恢复测试，明确进行中和已完成任务的恢复语义。
+- 批准一次真实生图并记录 Job ID；
+- running 期间刷新页面；
+- 页面恢复同一 Job ID，Provider 只出现一次请求；
+- 任务完成后 Artifact 回到原图片节点，Agent 收到真实 Tool Result。
+
+验收通过后，再根据真实需求选择 Job JSON / SQLite 持久化，或进入参考图与图片编辑。
 
 当前已接入统一 Ops 的核心手动字段为标题、Prompt、位置、图片/视频模型、比例、质量/分辨率、视频时长和音频开关，以及节点删除和显式连接。生成状态、Artifact、编辑器状态与专项生成派生节点仍走旧路径。新链路可通过 `VITE_CANVAS_OPERATION_BRIDGE=false` 回退。
 
-C3.6 已验证：同一服务进程内，页面刷新会恢复原 active Turn 的工具或审批边界；
-已批准但执行结果未知的付费生成不会自动重放；并发消息在未成功占用 Turn 时不写入历史。
+C3.6 / E1c 已验证：同一服务进程内，页面刷新会恢复原 active Turn 的工具或审批边界；
+已批准的付费生成使用 `proposalId` 重新挂载原服务端 Job，不重放 Provider 请求；
+并发消息在未成功占用 Turn 时不写入历史。

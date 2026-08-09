@@ -281,9 +281,9 @@ Runtime 禁止：
 这些能力只有在当前闭环无法满足下一项真实需求时，才进入下一轮设计。
 
 同一服务进程内的页面刷新 MUST 调用 `resumeActiveTurn(sessionId)`。等待普通工具或
-审批的 Turn 应恢复到原 Turn ID，不得新建并发 Turn。如果页面在已批准付费生成后
-中断，由于当前 GenerationJob 尚未迁移至服务端，Runtime MUST 将结果标记为
-`generation_outcome_unknown_after_reconnect`，禁止自动重放付费请求。
+审批的 Turn 应恢复到原 Turn ID，不得新建并发 Turn。已批准的付费生成重连时
+MUST 以 `proposalId` 查找原服务端 GenerationJob；相同提案只能发起一次 Provider 请求。
+同一 `proposalId` 若使用不同参数，MUST 返回冲突而不是新建 Job。
 
 会话对同一时刻的 active Turn MUST 互斥。新用户消息只能在 Runtime 成功占用 Turn 后
 写入持久化历史；因 active Turn 被拒绝的消息不得污染对话记录。最终 Assistant
@@ -809,10 +809,10 @@ E1a 决策：`ExecutionProposal` 独占“等待批准 / 批准 / 拒绝”语�
 `awaiting_approval`，避免审批状态产生双重事实来源。
 
 E1b 先用 Mock Executor 验证审批卡、状态可见性和 Artifact 回写。
-E1b.1 经用户确认后将审批后执行接到真实 Image Gateway；每次批准只允许创建一个 Job
-并发起一次生图请求。当前 Job Manager 仍位于浏览器内存，不改变第 13.1 节的服务端
-职责。E1c MUST 将 Job 状态源迁到服务端 Runtime；在此之前，刷新后不恢复 Job
-属于明确限制，不得宣称已持久化。
+E1b.1 经用户确认后将审批后执行接到真实 Image Gateway。E1c 将 Job 状态源
+迁到服务端内存 Runtime：批准后以 `proposalId` 幂等创建 Job，页面通过 Job ID 查询状态并
+在刷新后重新挂载。当前仅保证同一服务进程内的恢复；服务重启后 Job 不恢复，
+不得宣称已持久化。
 
 无论审批策略如何，系统 MUST：
 
