@@ -33,7 +33,7 @@ const IMAGE_MODEL_SETTINGS = {
 
 const NODE_VERSION = Type.String({
     minLength: 1,
-    description: 'The exact nodeVersion returned for this node by get_canvas_snapshot.',
+    description: 'The exact node_version returned for this node by get_canvas_snapshot or a successful add_canvas_node Tool Result.',
 });
 
 function textResult(value) {
