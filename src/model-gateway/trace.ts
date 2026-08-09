@@ -24,7 +24,9 @@ function normalizedKey(key: string): string {
 }
 
 function scrubString(value: string): string {
-    return value
+    const withoutMediaData = value.replace(/data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\r\n]+/gi, match =>
+        `[MEDIA_DATA_REDACTED length=${match.length}]`);
+    return withoutMediaData
         .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+/gi, `Bearer ${REDACTED}`)
         .replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[op]_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{12,})\b/g, REDACTED);
 }

@@ -112,10 +112,18 @@ export function prepareImageGenerationProposal(
     const modelName = IMAGE_MODEL_NAMES[modelId] || node.model || modelId;
     const aspectRatio = node.aspectRatio || 'Auto';
     const quality = node.resolution || '1K';
-    const referenceInputCount = (node.parentIds || []).filter(parentId => {
-        const parent = nodes.find(candidate => candidate.id === parentId);
-        return parent && parent.type !== 'Text' && Boolean(parent.resultUrl);
-    }).length + (node.characterReferenceUrls?.length || 0);
+    const referenceImages = [
+        ...(node.parentIds || []).flatMap(parentId => {
+            const parent = nodes.find(candidate => candidate.id === parentId);
+            return parent && parent.type !== 'Text' && parent.resultUrl
+                ? [{ sourceNodeId: parent.id, url: parent.resultUrl }]
+                : [];
+        }),
+        ...(node.characterReferenceUrls || []).map((url, index) => ({
+            sourceNodeId: `character-reference-${index + 1}`,
+            url,
+        })),
+    ].slice(0, 14);
 
     return {
         status: 'awaiting_approval',
@@ -138,7 +146,8 @@ export function prepareImageGenerationProposal(
                     modelName,
                     aspectRatio,
                     quality,
-                    referenceInputCount,
+                    referenceInputCount: referenceImages.length,
+                    referencePreviews: referenceImages.map(reference => reference.url),
                 },
                 ...(modelId === 'gemini-pro' ? {
                     estimatedCost: {
@@ -154,6 +163,7 @@ export function prepareImageGenerationProposal(
                 modelId,
                 aspectRatio,
                 quality,
+                referenceImages,
             },
         },
     };

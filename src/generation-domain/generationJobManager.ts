@@ -29,6 +29,17 @@ function requireText(value: string, field: string): string {
     return value.trim();
 }
 
+function normalizeReferenceImages(input: CreateImageGenerationJobInput['request']['referenceImages']) {
+    if (input === undefined) return [];
+    if (!Array.isArray(input) || input.length > 14) {
+        throw new Error('request.referenceImages must contain at most 14 images.');
+    }
+    return input.map((reference, index) => ({
+        sourceNodeId: requireText(reference?.sourceNodeId, `request.referenceImages[${index}].sourceNodeId`),
+        url: requireText(reference?.url, `request.referenceImages[${index}].url`),
+    }));
+}
+
 function requireTransition(job: GenerationJob, expected: GenerationJobStatus, next: GenerationJobStatus): void {
     if (job.status !== expected) {
         throw new Error(`Generation job ${job.id} cannot transition from ${job.status} to ${next}.`);
@@ -63,6 +74,7 @@ export class GenerationJobManager {
         const modelId = requireText(input.request.modelId, 'request.modelId');
         const aspectRatio = requireText(input.request.aspectRatio, 'request.aspectRatio');
         const quality = requireText(input.request.quality, 'request.quality');
+        const referenceImages = normalizeReferenceImages(input.request.referenceImages);
         const active = [...this.jobs.values()].find(job =>
             job.targetNodeId === targetNodeId && (job.status === 'queued' || job.status === 'running'),
         );
@@ -78,7 +90,7 @@ export class GenerationJobManager {
             proposalId,
             targetNodeId,
             status: 'queued',
-            request: { type: 'image', prompt, modelId, aspectRatio, quality },
+            request: { type: 'image', prompt, modelId, aspectRatio, quality, referenceImages },
             attempt: 0,
             createdAt: timestamp,
             updatedAt: timestamp,

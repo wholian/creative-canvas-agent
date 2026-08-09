@@ -7,7 +7,13 @@ import {
 
 export interface OpenAIImageChatRequest {
     model: string;
-    messages: Array<{ role: 'user'; content: string }>;
+    messages: Array<{
+        role: 'user';
+        content: string | Array<
+            | { type: 'text'; text: string }
+            | { type: 'image_url'; image_url: { url: string } }
+        >;
+    }>;
     modalities: ['text', 'image'];
     image_config: {
         aspect_ratio: string;
@@ -69,9 +75,19 @@ export class OpenAIImageChatAdapter implements ModelAdapter {
         const prompt = [...request.messages].reverse().find(message => message.role === 'user')?.content?.trim();
         if (!prompt) throw new ModelGatewayError('invalid_request', 'Image generation requires a user prompt.', 'messages');
 
+        const referenceImages = request.inputArtifacts || [];
+        const requestContent: OpenAIImageChatRequest['messages'][number]['content'] = referenceImages.length
+            ? [
+                { type: 'text', text: prompt },
+                ...referenceImages.map(reference => ({
+                    type: 'image_url' as const,
+                    image_url: { url: reference.url },
+                })),
+            ]
+            : prompt;
         const payload: OpenAIImageChatRequest = {
             model: request.model.upstreamModel,
-            messages: [{ role: 'user', content: prompt }],
+            messages: [{ role: 'user', content: requestContent }],
             modalities: ['text', 'image'],
             image_config: {
                 aspect_ratio: String(request.parameters.aspect_ratio),

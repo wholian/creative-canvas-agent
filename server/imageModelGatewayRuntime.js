@@ -29,7 +29,7 @@ export function createImageModelGatewayRuntime(config, options = {}) {
             protocol: 'openai-image-chat',
             upstreamModel: config.modelName,
             capabilities: ['image_generation'],
-            inputModalities: ['text'],
+            inputModalities: ['text', 'image'],
             outputModalities: ['image'],
             parameters: {
                 aspect_ratio: {
@@ -63,7 +63,7 @@ export function createImageModelGatewayRuntime(config, options = {}) {
 
     return {
         traceStore,
-        async generateImage({ prompt, aspectRatio = '1:1', resolution = '1K' }) {
+        async generateImage({ prompt, aspectRatio = '1:1', resolution = '1K', referenceImages = [] }) {
             return gateway.invoke({
                 modelId: IMAGE_MODEL_ID,
                 capability: 'image_generation',
@@ -72,6 +72,11 @@ export function createImageModelGatewayRuntime(config, options = {}) {
                     aspect_ratio: aspectRatio === 'Auto' ? '1:1' : aspectRatio,
                     image_size: resolution === 'Auto' ? '1K' : resolution,
                 },
+                inputArtifacts: referenceImages.map(reference => ({
+                    type: 'image',
+                    url: reference.url,
+                    sourceId: reference.sourceNodeId,
+                })),
             });
         },
     };

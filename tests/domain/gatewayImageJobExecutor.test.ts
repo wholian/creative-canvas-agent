@@ -27,13 +27,23 @@ test('server image executor maps the frozen job to Gateway and saves its Artifac
             status: 'running', attempt: 1,
             request: {
                 type: 'image', prompt: 'A yellow kitten', modelId: 'gemini-pro', aspectRatio: '16:9', quality: '2K',
+                referenceImages: [{
+                    sourceNodeId: 'reference-node-1',
+                    url: 'data:image/png;base64,cmVmZXJlbmNlLWltYWdl',
+                }],
             },
             createdAt: '2026-08-09T00:00:00.000Z', updatedAt: '2026-08-09T00:00:00.000Z',
         };
 
         const result = await executor(job);
 
-        assert.deepEqual(requests, [{ prompt: 'A yellow kitten', aspectRatio: '16:9', resolution: '2K' }]);
+        assert.deepEqual(requests, [{
+            prompt: 'A yellow kitten', aspectRatio: '16:9', resolution: '2K',
+            referenceImages: [{
+                sourceNodeId: 'reference-node-1',
+                url: 'data:image/png;base64,cmVmZXJlbmNlLWltYWdl',
+            }],
+        }]);
         assert.equal(result.mimeType, 'image/png');
         assert.match(result.url, /^\/library\//);
         const files = fs.readdirSync(imagesDir);
@@ -44,6 +54,7 @@ test('server image executor maps the frozen job to Gateway and saves its Artifac
         assert.equal(metadata.generationJobId, 'server-job-image-1');
         assert.equal(metadata.targetNodeId, 'image-node-1');
         assert.equal(metadata.traceId, 'trace-server-image-1');
+        assert.deepEqual(metadata.referenceSourceNodeIds, ['reference-node-1']);
     } finally {
         fs.rmSync(imagesDir, { recursive: true, force: true });
     }

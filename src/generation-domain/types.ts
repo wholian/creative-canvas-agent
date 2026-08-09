@@ -1,11 +1,17 @@
 export type GenerationJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
+export interface ImageGenerationReference {
+    sourceNodeId: string;
+    url: string;
+}
+
 export interface ImageGenerationJobRequest {
     type: 'image';
     prompt: string;
     modelId: string;
     aspectRatio: string;
     quality: string;
+    referenceImages: ImageGenerationReference[];
 }
 
 export interface GenerationJobError {
@@ -38,7 +44,9 @@ export interface GenerationArtifact {
 export interface CreateImageGenerationJobInput {
     proposalId: string;
     targetNodeId: string;
-    request: Omit<ImageGenerationJobRequest, 'type'>;
+    request: Omit<ImageGenerationJobRequest, 'type' | 'referenceImages'> & {
+        referenceImages?: ImageGenerationReference[];
+    };
 }
 
 export interface GenerationExecutorResult {

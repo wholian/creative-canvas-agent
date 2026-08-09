@@ -41,6 +41,30 @@ test('image generation proposal exposes current node settings without executing'
     assert.equal(result.proposal.display.estimatedCost?.amount, 0.49);
 });
 
+test('image generation proposal freezes connected upstream images for approval', () => {
+    const reference = imageNode({
+        id: 'image-reference', resultUrl: '/library/images/reference.png',
+        status: 'success' as NodeData['status'],
+    });
+    const target = imageNode({ id: 'image-target', parentIds: [reference.id] });
+    const nodes = [reference, target];
+    const snapshot = createAgentCanvasSnapshot(nodes, 'Film');
+    const targetVersion = snapshot.nodes.find(node => node.id === target.id)?.nodeVersion;
+    assert.ok(targetVersion);
+
+    const result = prepareImageGenerationProposal({
+        toolCallId: 'call-reference', nodeId: target.id, expectedNodeVersion: targetVersion,
+    }, nodes, 'Film');
+
+    assert.equal(result.status, 'awaiting_approval');
+    if (result.status !== 'awaiting_approval') return;
+    assert.equal(result.proposal.display.parameters.referenceInputCount, 1);
+    assert.deepEqual(result.proposal.display.parameters.referencePreviews, ['/library/images/reference.png']);
+    assert.deepEqual(result.proposal.arguments.referenceImages, [{
+        sourceNodeId: 'image-reference', url: '/library/images/reference.png',
+    }]);
+});
+
 test('image generation proposal rejects stale target node content', () => {
     const original = imageNode();
     const originalVersion = createAgentCanvasSnapshot([original], 'Film').nodes[0].nodeVersion;

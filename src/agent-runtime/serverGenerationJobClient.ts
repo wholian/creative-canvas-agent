@@ -26,6 +26,23 @@ function proposalString(proposal: ExecutionProposal, key: string): string {
     return value;
 }
 
+function proposalReferenceImages(proposal: ExecutionProposal) {
+    const value = proposal.arguments.referenceImages;
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) throw new Error('Generation proposal has invalid referenceImages.');
+    return value.map((reference, index) => {
+        if (!reference || typeof reference !== 'object') {
+            throw new Error(`Generation proposal referenceImages[${index}] is invalid.`);
+        }
+        const sourceNodeId = (reference as Record<string, unknown>).sourceNodeId;
+        const url = (reference as Record<string, unknown>).url;
+        if (typeof sourceNodeId !== 'string' || !sourceNodeId.trim() || typeof url !== 'string' || !url.trim()) {
+            throw new Error(`Generation proposal referenceImages[${index}] is incomplete.`);
+        }
+        return { sourceNodeId, url };
+    });
+}
+
 export function createServerGenerationJobClient({
     fetchImplementation = fetch,
     pollIntervalMs = 750,
@@ -47,6 +64,7 @@ export function createServerGenerationJobClient({
                         modelId: proposalString(proposal, 'modelId'),
                         aspectRatio: proposalString(proposal, 'aspectRatio'),
                         quality: proposalString(proposal, 'quality'),
+                        referenceImages: proposalReferenceImages(proposal),
                     },
                 }),
             }));

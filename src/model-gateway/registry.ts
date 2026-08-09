@@ -180,6 +180,23 @@ export class ModelRegistry {
                 'tools',
             );
         }
+        if (request.inputArtifacts !== undefined) {
+            if (!Array.isArray(request.inputArtifacts) || request.inputArtifacts.length > 14) {
+                throw new ModelGatewayError('invalid_request', 'inputArtifacts must contain at most 14 items.', 'inputArtifacts');
+            }
+            request.inputArtifacts.forEach((artifact, index) => {
+                if (!artifact || artifact.type !== 'image' || typeof artifact.url !== 'string' || !artifact.url.trim()) {
+                    throw new ModelGatewayError('invalid_request', `inputArtifacts[${index}] is invalid.`, `inputArtifacts[${index}]`);
+                }
+                if (!model.inputModalities.includes(artifact.type)) {
+                    throw new ModelGatewayError(
+                        'unsupported_capability',
+                        `Model ${model.id} does not support ${artifact.type} input.`,
+                        `inputArtifacts[${index}].type`,
+                    );
+                }
+            });
+        }
 
         const inputParameters = request.parameters || {};
         const unknown = Object.keys(inputParameters).find(name => !model.parameters[name]);

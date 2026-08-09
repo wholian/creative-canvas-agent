@@ -457,6 +457,10 @@ interface GenerationJob {
     modelId: string;
     aspectRatio: string;
     quality: string;
+    referenceImages: Array<{
+      sourceNodeId: string;
+      url: string;
+    }>;
   };
   attempt: number;
   artifactId?: string;
@@ -798,7 +802,7 @@ interface ExecutionProposal {
 }
 ```
 
-v0.1 的第一个接入工具为 `request_image_generation`。提案卡 MUST 展示目标节点、Prompt、模型、比例、质量和可获得的费用估算。提案参数由当前画布节点读取，模型不得在请求执行时悄悄覆盖节点设置。
+v0.1 的第一个接入工具为 `request_image_generation`。提案卡 MUST 展示目标节点、Prompt、模型、比例、质量、已连接的参考图和可获得的费用估算。提案参数由当前画布节点读取，模型不得在请求执行时悄悄覆盖节点设置。目标图片节点 MUST 在画布上持续显示当前连接的参考图缩略图；创建提案时将这些参考图冻结进 `ExecutionProposal.arguments`，批准后原样写入 `GenerationJob.request`，再由 Gateway 作为真实多模态图片输入发送给供应商。
 
 批准前后 MUST 分别校验 `expectedRevision`。审批期间节点发生变化时，本次提案失效，必须重新读取画布并重新请求审批。拒绝 MUST 作为结构化 Tool Result 回传给 Agent，并且不得调用生成模型。
 
@@ -1064,6 +1068,9 @@ v0.1 至少通过以下测试：
 24. 一条自动化命令能够从空 Store 运行全部 v0.1 验收用例并返回明确退出码。
 25. “创建一张台风天气的图片”会创建图片草稿并进入生成审批，不先追问可选细节，也不输出 JSON 模板。
 26. “添加台风图片节点，先不生成”只创建草稿；“帮我写台风生图 Prompt”不修改画布。
+27. 图片节点连接到另一个图片节点后，目标节点持续显示参考图缩略图和数量；断开后立即消失。
+28. 生图审批卡展示并冻结当前参考图，批准后 `GenerationJob` 保存同一组来源节点 ID 和 URL。
+29. OpenAI-compatible 生图请求把冻结参考图作为 `image_url` 内容发送，Trace 不保存其 Base64 正文。
 
 ## 19. 建议的代码边界
 

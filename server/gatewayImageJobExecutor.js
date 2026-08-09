@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { saveBufferToFile } from './utils/imageHelpers.js';
+import { resolveImageToBase64, saveBufferToFile } from './utils/imageHelpers.js';
 
 function extensionForMimeType(mimeType) {
     if (mimeType === 'image/jpeg') return 'jpg';
@@ -16,10 +16,18 @@ export function createGatewayImageJobExecutor({ imageGateway, imagesDir }) {
         }
         if (!imageGateway) throw new Error('Unified Image Gateway is disabled.');
 
+        const referenceImages = (job.request.referenceImages || []).map(reference => {
+            const dataUrl = resolveImageToBase64(reference.url);
+            if (!dataUrl) {
+                throw new Error(`Reference image from node ${reference.sourceNodeId} is unavailable.`);
+            }
+            return { sourceNodeId: reference.sourceNodeId, url: dataUrl };
+        });
         const result = await imageGateway.generateImage({
             prompt: job.request.prompt,
             aspectRatio: job.request.aspectRatio,
             resolution: job.request.quality,
+            referenceImages,
         });
         const upstreamArtifact = result.artifacts?.[0];
         if (!upstreamArtifact?.base64) throw new Error('Unified Image Gateway returned no image artifact.');
@@ -39,6 +47,7 @@ export function createGatewayImageJobExecutor({ imageGateway, imagesDir }) {
             targetNodeId: job.targetNodeId,
             generationJobId: job.id,
             proposalId: job.proposalId,
+            referenceSourceNodeIds: referenceImages.map(reference => reference.sourceNodeId),
             createdAt: new Date().toISOString(),
             type: 'images',
             ...(result.traceId ? { traceId: result.traceId } : {}),

@@ -455,6 +455,23 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                     <div className={`mt-3 max-h-28 overflow-y-auto rounded-xl border p-3 text-xs leading-relaxed ${isDark ? 'border-neutral-700 bg-neutral-900/70 text-neutral-300' : 'border-neutral-200 bg-white text-neutral-700'}`}>
                                         {String(parameters.prompt || '')}
                                     </div>
+                                    {Array.isArray(parameters.referencePreviews) && parameters.referencePreviews.length > 0 && (
+                                        <div className="mt-3">
+                                            <div className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-neutral-500' : 'text-neutral-500'}`}>
+                                                Frozen reference images
+                                            </div>
+                                            <div className="flex gap-2 overflow-x-auto pb-1">
+                                                {parameters.referencePreviews.slice(0, 14).map((url, index) => (
+                                                    <img
+                                                        key={`${String(url)}-${index}`}
+                                                        src={String(url)}
+                                                        alt={`Reference ${index + 1}`}
+                                                        className={`h-14 w-14 flex-none rounded-lg border object-cover ${isDark ? 'border-neutral-700' : 'border-neutral-200'}`}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                     {estimatedCost?.note && (
                                         <p className={`mt-2 text-[11px] leading-relaxed ${isDark ? 'text-neutral-500' : 'text-neutral-500'}`}>
                                             {estimatedCost.note}

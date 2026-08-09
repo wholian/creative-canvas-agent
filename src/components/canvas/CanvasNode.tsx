@@ -571,6 +571,29 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
 
       {/* Relative wrapper for the Image Card to allow absolute positioning of controls below it */}
       <div className="relative group/nodecard">
+        {data.type === NodeType.IMAGE && connectedImageNodes && connectedImageNodes.length > 0 && (
+          <div
+            className={`absolute left-3 top-3 z-30 flex items-center gap-1.5 rounded-xl border px-2 py-1.5 shadow-lg backdrop-blur-md ${isDark
+              ? 'border-cyan-400/40 bg-black/75 text-cyan-100'
+              : 'border-blue-300 bg-white/90 text-blue-800'}`}
+            title={`${connectedImageNodes.length} connected reference image${connectedImageNodes.length > 1 ? 's' : ''}`}
+          >
+            <div className="flex -space-x-1.5">
+              {connectedImageNodes.slice(0, 3).map(reference => (
+                <img
+                  key={reference.id}
+                  src={reference.url}
+                  alt="Reference input"
+                  className={`h-7 w-7 rounded-md border object-cover ${isDark ? 'border-neutral-700' : 'border-white'}`}
+                />
+              ))}
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wide">
+              {connectedImageNodes.length} ref
+            </span>
+          </div>
+        )}
+
         {/* Unified Toolbar - Appears above the card for Image nodes on hover */}
         {data.type === NodeType.IMAGE && isSuccess && data.resultUrl && (
           <div

@@ -29,7 +29,11 @@ test('OpenAI-compatible Image Gateway sends the observed Chat Completions contra
     });
 
     const result = await runtime.generateImage({
-        prompt: 'a red circle', aspectRatio: '1:1', resolution: '1K',
+        prompt: 'turn this into a red circle', aspectRatio: '1:1', resolution: '1K',
+        referenceImages: [{
+            sourceNodeId: 'reference-node-1',
+            url: 'data:image/png;base64,cmVmZXJlbmNlLWltYWdl',
+        }],
     });
 
     assert.equal(requestUrl, 'https://gateway.example/v1/chat/completions');
@@ -37,13 +41,17 @@ test('OpenAI-compatible Image Gateway sends the observed Chat Completions contra
     assert.equal(requestBody.model, 'gemini-2.5-flash-image');
     assert.deepEqual(requestBody.modalities, ['text', 'image']);
     assert.deepEqual(requestBody.image_config, { aspect_ratio: '1:1', image_size: '1K' });
+    assert.deepEqual(requestBody.messages[0].content, [
+        { type: 'text', text: 'turn this into a red circle' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,cmVmZXJlbmNlLWltYWdl' } },
+    ]);
     assert.equal(result.artifacts?.[0].mimeType, 'image/png');
     assert.equal(result.artifacts?.[0].base64, 'ZmFrZS1wbmc=');
     assert.equal(result.artifacts?.[0].byteLength, 8);
     assert.equal(result.message.content, 'Here is the image:');
 
     const traceJson = JSON.stringify(runtime.traceStore.list());
-    assert.doesNotMatch(traceJson, /sk-image-secret|ZmFrZS1wbmc=/);
+    assert.doesNotMatch(traceJson, /sk-image-secret|ZmFrZS1wbmc=|cmVmZXJlbmNlLWltYWdl/);
     assert.match(traceJson, /MEDIA_DATA_REDACTED/);
 });
 

@@ -9,6 +9,19 @@ function requireText(value, field) {
     return value.trim();
 }
 
+function normalizeReferenceImages(value) {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.length > 14) {
+        const error = new Error('request.referenceImages must contain at most 14 images.');
+        error.code = 'invalid_generation_job';
+        throw error;
+    }
+    return value.map((reference, index) => ({
+        sourceNodeId: requireText(reference?.sourceNodeId, `request.referenceImages[${index}].sourceNodeId`),
+        url: requireText(reference?.url, `request.referenceImages[${index}].url`),
+    }));
+}
+
 function normalizeInput(input) {
     return {
         proposalId: requireText(input?.proposalId, 'proposalId'),
@@ -18,6 +31,7 @@ function normalizeInput(input) {
             modelId: requireText(input?.request?.modelId, 'request.modelId'),
             aspectRatio: requireText(input?.request?.aspectRatio, 'request.aspectRatio'),
             quality: requireText(input?.request?.quality, 'request.quality'),
+            referenceImages: normalizeReferenceImages(input?.request?.referenceImages),
         },
     };
 }

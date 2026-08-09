@@ -15,6 +15,7 @@ function proposal(): ExecutionProposal {
         arguments: {
             nodeId: 'image-client-1', prompt: 'A yellow kitten', modelId: 'gemini-pro',
             aspectRatio: '16:9', quality: '2K',
+            referenceImages: [{ sourceNodeId: 'reference-node-1', url: '/library/images/reference.png' }],
         },
     };
 }
@@ -24,6 +25,7 @@ function job(status: GenerationJob['status']): GenerationJob {
         id: 'server-job-client-1', proposalId: 'proposal-client-1', targetNodeId: 'image-client-1',
         status, request: {
             type: 'image', prompt: 'A yellow kitten', modelId: 'gemini-pro', aspectRatio: '16:9', quality: '2K',
+            referenceImages: [{ sourceNodeId: 'reference-node-1', url: '/library/images/reference.png' }],
         },
         attempt: status === 'queued' ? 0 : 1,
         ...(status === 'succeeded' ? { artifactId: 'artifact-client-1' } : {}),
@@ -64,6 +66,9 @@ test('client creates once, polls the server job and returns its Artifact', async
     const createBody = JSON.parse(String(requests[0].init?.body));
     assert.deepEqual(createBody, {
         proposalId: 'proposal-client-1', targetNodeId: 'image-client-1',
-        request: { prompt: 'A yellow kitten', modelId: 'gemini-pro', aspectRatio: '16:9', quality: '2K' },
+        request: {
+            prompt: 'A yellow kitten', modelId: 'gemini-pro', aspectRatio: '16:9', quality: '2K',
+            referenceImages: [{ sourceNodeId: 'reference-node-1', url: '/library/images/reference.png' }],
+        },
     });
 });

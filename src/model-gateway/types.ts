@@ -65,12 +65,19 @@ export interface ModelToolCall {
     arguments: Record<string, unknown>;
 }
 
+export interface ModelInputArtifact {
+    type: 'image';
+    url: string;
+    sourceId?: string;
+}
+
 export interface ModelInvocationRequest {
     modelId: string;
     capability: ModelInvocationCapability;
     messages: ModelMessage[];
     tools?: ModelToolDefinition[];
     parameters?: Record<string, unknown>;
+    inputArtifacts?: ModelInputArtifact[];
 }
 
 export interface ResolvedModelInvocation extends ModelInvocationRequest {
