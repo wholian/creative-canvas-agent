@@ -97,6 +97,11 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
 
   // Theme helper
   const isDark = canvasTheme === 'dark';
+  const connectionTargetClass = isHoveredForConnection
+    ? `outline outline-2 outline-offset-4 rounded-2xl ${isDark
+      ? 'outline-cyan-400 shadow-[0_0_28px_rgba(34,211,238,0.28)]'
+      : 'outline-blue-500 shadow-[0_0_24px_rgba(59,130,246,0.22)]'}`
+    : '';
 
   // Inverse scaling for toolbar to keep it readable when zooming out
   // Same logic as NodeControls prompt bar
@@ -200,7 +205,7 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
     return (
       <div
         data-canvas-node-id={data.id}
-        className={`absolute flex items-center group/node touch-none pointer-events-auto`}
+        className={`absolute flex items-center group/node touch-none pointer-events-auto ${connectionTargetClass}`}
         style={{
           transform: `translate(${data.x}px, ${data.y}px)`,
           transition: 'box-shadow 0.2s',
@@ -261,7 +266,7 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
     return (
       <div
         data-canvas-node-id={data.id}
-        className={`absolute flex items-center group/node touch-none pointer-events-auto`}
+        className={`absolute flex items-center group/node touch-none pointer-events-auto ${connectionTargetClass}`}
         style={{
           transform: `translate(${data.x}px, ${data.y}px)`,
           transition: 'box-shadow 0.2s',
@@ -479,7 +484,7 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
     return (
       <div
         data-canvas-node-id={data.id}
-        className={`absolute flex items-center group/node touch-none pointer-events-auto`}
+        className={`absolute flex items-center group/node touch-none pointer-events-auto ${connectionTargetClass}`}
         style={{
           transform: `translate(${data.x}px, ${data.y}px)`,
           transition: 'box-shadow 0.2s',
@@ -550,7 +555,7 @@ export const CanvasNode: React.FC<CanvasNodeProps> = ({
   return (
     <div
       data-canvas-node-id={data.id}
-      className={`absolute group/node touch-none pointer-events-auto`}
+      className={`absolute group/node touch-none pointer-events-auto ${connectionTargetClass}`}
       style={{
         transform: `translate(${data.x}px, ${data.y}px)`,
         transition: 'box-shadow 0.2s',
