@@ -802,7 +802,7 @@ interface ExecutionProposal {
 }
 ```
 
-v0.1 的第一个接入工具为 `request_image_generation`。提案卡 MUST 展示目标节点、Prompt、模型、比例、质量、已连接的参考图和可获得的费用估算。提案参数由当前画布节点读取，模型不得在请求执行时悄悄覆盖节点设置。目标图片节点 MUST 在画布上持续显示当前连接的参考图缩略图；创建提案时将这些参考图冻结进 `ExecutionProposal.arguments`，批准后原样写入 `GenerationJob.request`，再由 Gateway 作为真实多模态图片输入发送给供应商。
+v0.1 的第一个接入工具为 `request_image_generation`。提案卡 MUST 展示目标节点、Prompt、模型、比例、质量、已连接的参考图和可获得的费用估算。提案参数由当前画布节点读取，模型不得在请求执行时悄悄覆盖节点设置。目标图片节点 MUST 在 Prompt 输入区持续显示当前连接的参考图缩略图；创建提案时将这些参考图冻结进 `ExecutionProposal.arguments`，批准后原样写入 `GenerationJob.request`，再由 Gateway 作为真实多模态图片输入发送给供应商。
 
 批准前后 MUST 分别校验 `expectedRevision`。审批期间节点发生变化时，本次提案失效，必须重新读取画布并重新请求审批。拒绝 MUST 作为结构化 Tool Result 回传给 Agent，并且不得调用生成模型。
 

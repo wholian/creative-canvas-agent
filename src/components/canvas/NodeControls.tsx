@@ -602,6 +602,29 @@ const NodeControlsComponent: React.FC<NodeControlsProps> = ({
             {/* Prompt Textarea with Expand Button - Hidden for storyboard-generated scenes */}
             {!(data.prompt && data.prompt.startsWith('Extract panel #')) && (
                 <div className="mb-3">
+                    {data.type === NodeType.IMAGE && connectedImageNodes.length > 0 && (
+                        <div
+                            className={`mb-3 flex items-center gap-2 border-b pb-3 ${isDark ? 'border-neutral-800' : 'border-neutral-200'}`}
+                            title={`${connectedImageNodes.length} connected reference image${connectedImageNodes.length > 1 ? 's' : ''}`}
+                        >
+                            <span className={`text-[10px] font-medium uppercase tracking-wider ${isDark ? 'text-neutral-500' : 'text-neutral-500'}`}>
+                                References
+                            </span>
+                            <div className="flex -space-x-1">
+                                {connectedImageNodes.slice(0, 4).map(reference => (
+                                    <img
+                                        key={reference.id}
+                                        src={reference.url}
+                                        alt="Reference input"
+                                        className={`h-9 w-9 rounded-lg border-2 object-cover ${isDark ? 'border-[#1a1a1a]' : 'border-white'}`}
+                                    />
+                                ))}
+                            </div>
+                            <span className={`text-[11px] ${isDark ? 'text-neutral-500' : 'text-neutral-500'}`}>
+                                {connectedImageNodes.length}
+                            </span>
+                        </div>
+                    )}
                     <textarea
                         className={`w-full bg-transparent text-sm outline-none resize-none font-light ${isDark ? 'text-white placeholder-neutral-600' : 'text-neutral-900 placeholder-neutral-400'}`}
                         placeholder={
