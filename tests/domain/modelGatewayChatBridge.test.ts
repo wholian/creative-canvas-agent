@@ -65,6 +65,16 @@ test('Pi Runtime executes a canvas tool and returns the real node ID to the mode
     assert.deepEqual(invocations[1].messages.map(message => message.role).slice(-2), ['assistant', 'tool']);
     assert.match(invocations[1].messages.at(-1).content, /node-real-123/);
     assert.equal(invocations[1].messages.at(-1).toolCallId, 'call-add-1');
+    assert.deepEqual(completed.events.map(event => event.type), [
+        'turn.started',
+        'model.started',
+        'model.completed',
+        'tool.requested',
+        'tool.completed',
+        'model.started',
+        'model.completed',
+        'turn.completed',
+    ]);
 });
 
 test('Pi Runtime owns multiple tool rounds instead of exposing a serialized continuation', async () => {
@@ -133,6 +143,70 @@ test('a refreshed client reconnects to the same pending tool turn', async () => 
     }]);
     assert.equal(completed.status, 'completed');
     assert.equal(completed.response, '已恢复并读取画布。');
+});
+
+test('cancelling a pending tool releases the session and records one terminal event', async () => {
+    const invocations: Array<Record<string, any>> = [];
+    const runtime = runtimeFor([{
+        traceId: 'trace-cancel-tool',
+        message: { role: 'assistant', content: '', toolCalls: [{
+            id: 'call-cancel-read', name: 'get_canvas_snapshot', arguments: {},
+        }] },
+    }, {
+        traceId: 'trace-after-cancel',
+        message: { role: 'assistant', content: '新的请求可以正常执行。' },
+    }], invocations);
+
+    const started = await runtime.startTurn({ sessionId: 'session-cancel', message: '读取画布' });
+    assert.equal(started.status, 'awaiting_tool');
+    const cancelled = await runtime.cancelTurn(started.id);
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(cancelled.events.at(-1)?.type, 'turn.cancelled');
+    assert.equal(cancelled.events.filter(event => event.type === 'turn.cancelled').length, 1);
+    assert.equal(await runtime.resumeActiveTurn('session-cancel'), undefined);
+
+    const next = await runtime.startTurn({
+        sessionId: 'session-cancel',
+        message: '继续一个新请求',
+        history: [{ role: 'user', content: '读取画布' }],
+    });
+    assert.equal(next.status, 'completed', next.error);
+    assert.equal(next.response, '新的请求可以正常执行。');
+    assert.equal(invocations.length, 2);
+});
+
+test('cancelling during the first model request reaches the provider signal', async () => {
+    let providerStarted = false;
+    let providerAborted = false;
+    const modelGatewayRuntime = {
+        invoke(_request: Record<string, any>, options: { signal?: AbortSignal } = {}) {
+            providerStarted = true;
+            return new Promise((_resolve, reject) => {
+                options.signal?.addEventListener('abort', () => {
+                    providerAborted = true;
+                    const error = new Error('cancelled');
+                    error.name = 'AbortError';
+                    reject(error);
+                }, { once: true });
+            });
+        },
+    };
+    const runtime = new CreativeAgentRuntime({
+        modelGatewayRuntime,
+        modelName: 'fake-model',
+        baseUrl: 'https://unused.example/v1',
+    });
+
+    const boundaryPromise = runtime.startTurn({ sessionId: 'session-cancel-model', message: '开始一个慢请求' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(providerStarted, true);
+    const cancelled = await runtime.cancelActiveTurn('session-cancel-model');
+    const boundary = await boundaryPromise;
+
+    assert.equal(providerAborted, true);
+    assert.equal(cancelled?.status, 'cancelled');
+    assert.equal(boundary.status, 'cancelled');
+    assert.equal(boundary.events.at(-1)?.type, 'turn.cancelled');
 });
 
 test('reconnect exposes the same approved generation action for server-job reattachment', async () => {

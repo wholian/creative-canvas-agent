@@ -136,13 +136,13 @@ export function createPiModelGatewayAdapter({
         maxTokens: 2_048,
     };
 
-    const streamFn = (_model, context) => {
+    const streamFn = (_model, context, options = {}) => {
         const stream = createAssistantMessageEventStream();
         void modelGatewayRuntime.invoke({
             messages: toGatewayMessages(context),
             tools: toGatewayTools(context.tools),
             parameters: { temperature: 0.7, max_tokens: 2048 },
-        }).then(result => {
+        }, { signal: options.signal }).then(result => {
             if (result.traceId) onTrace?.(result.traceId);
             const message = messageFromGateway(model, result);
             stream.push({ type: 'done', reason: message.stopReason, message });

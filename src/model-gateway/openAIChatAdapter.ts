@@ -2,6 +2,7 @@ import {
     ModelGatewayError,
     type ModelAdapter,
     type ModelInvocationResult,
+    type ModelInvocationOptions,
     type ModelMessage,
     type ModelToolCall,
     type ResolvedModelInvocation,
@@ -55,7 +56,7 @@ export interface OpenAIChatCompletionResponse {
 export interface OpenAIChatTransport {
     complete(
         request: OpenAIChatCompletionRequest,
-        context: { providerId: string },
+        context: { providerId: string; signal?: AbortSignal },
     ): Promise<OpenAIChatCompletionResponse>;
 }
 
@@ -102,7 +103,7 @@ export class OpenAIChatAdapter implements ModelAdapter {
         this.transport = transport;
     }
 
-    async invoke(request: ResolvedModelInvocation): Promise<ModelInvocationResult> {
+    async invoke(request: ResolvedModelInvocation, options: ModelInvocationOptions = {}): Promise<ModelInvocationResult> {
         const payload: OpenAIChatCompletionRequest = {
             model: request.model.upstreamModel,
             messages: request.messages.map(toOpenAIMessage),
@@ -127,7 +128,7 @@ export class OpenAIChatAdapter implements ModelAdapter {
 
         let response: OpenAIChatCompletionResponse;
         try {
-            response = await this.transport.complete(payload, { providerId: request.provider.id });
+            response = await this.transport.complete(payload, { providerId: request.provider.id, signal: options.signal });
         } catch (error) {
             if (error instanceof ModelGatewayError) throw error;
             throw new ModelGatewayError(

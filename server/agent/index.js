@@ -183,6 +183,12 @@ export async function resolveCanvasApproval(turnId, decision, { agentRuntime }) 
     return finalizeTurn(await agentRuntime.resolveApproval(turnId, decision));
 }
 
+export async function cancelActiveTurn(sessionId, { agentRuntime }) {
+    if (!agentRuntime) throw new Error('Creative Agent Runtime is unavailable.');
+    const turn = await agentRuntime.cancelActiveTurn(sessionId);
+    return turn ? finalizeTurn(turn) : null;
+}
+
 export default {
     getSession,
     deleteSession,
@@ -192,4 +198,5 @@ export default {
     resumeActiveTurn,
     completeCanvasAction,
     resolveCanvasApproval,
+    cancelActiveTurn,
 };

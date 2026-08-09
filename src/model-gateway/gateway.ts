@@ -4,6 +4,7 @@ import {
     type GatewayInvocationResult,
     type ModelAdapter,
     type ModelInvocationRequest,
+    type ModelInvocationOptions,
     type ModelProtocol,
 } from './types.ts';
 import type { ModelTraceRecord, ModelTraceStore } from './trace.ts';
@@ -36,7 +37,7 @@ export class ModelGateway {
         this.adapters.set(adapter.protocol, adapter);
     }
 
-    async invoke(request: ModelInvocationRequest): Promise<GatewayInvocationResult> {
+    async invoke(request: ModelInvocationRequest, options: ModelInvocationOptions = {}): Promise<GatewayInvocationResult> {
         const traceId = this.traceIdFactory();
         const startedAtMs = this.now();
         let trace: ModelTraceRecord = {
@@ -67,7 +68,7 @@ export class ModelGateway {
                     `No adapter registered for protocol ${resolved.model.protocol}.`,
                 );
             }
-            const adapterResult = await adapter.invoke(resolved);
+            const adapterResult = await adapter.invoke(resolved, options);
             const result: GatewayInvocationResult = { ...adapterResult, traceId };
             const finishedAtMs = this.now();
             trace = {

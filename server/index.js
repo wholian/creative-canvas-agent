@@ -1288,6 +1288,20 @@ app.get('/api/chat/sessions/:id/active-turn', async (req, res) => {
     }
 });
 
+// Session-scoped cancellation also works before the initial model request has
+// returned a turn ID to the browser.
+app.post('/api/chat/sessions/:id/active-turn/cancel', async (req, res) => {
+    try {
+        const result = await chatAgent.cancelActiveTurn(req.params.id, {
+            agentRuntime: CREATIVE_AGENT_RUNTIME,
+        });
+        res.json(result ? { success: true, ...result } : { success: true, turn: null });
+    } catch (error) {
+        console.error('Agent turn cancellation error:', error);
+        res.status(400).json({ error: error.message || 'Agent turn cancellation failed' });
+    }
+});
+
 // Delete a chat session
 app.delete('/api/chat/sessions/:id', async (req, res) => {
     try {

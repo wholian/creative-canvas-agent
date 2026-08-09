@@ -89,6 +89,16 @@ function publicTurn(session) {
     return structuredClone(session.turn);
 }
 
+function appendEvent(session, type, details = {}) {
+    if (!session.turn) return;
+    session.turn.events.push({
+        id: crypto.randomUUID(),
+        type,
+        timestamp: new Date().toISOString(),
+        ...details,
+    });
+}
+
 function historyMessages(history = []) {
     return history.flatMap(message => {
         if (message.role !== 'user' && message.role !== 'assistant') return [];
@@ -151,12 +161,19 @@ export class CreativeAgentRuntime {
             toolExecution: 'sequential',
         });
         session.agent.subscribe(event => {
-            if (event.type !== 'turn_start') return;
-            session.modelTurns += 1;
-            // One initial model turn plus one follow-up for each allowed tool
-            // round. A further model turn means the Agent did not converge.
-            if (session.modelTurns > this.maxToolRounds + 1) {
-                throw new Error(`Canvas Agent exceeded the ${this.maxToolRounds}-round tool-call limit.`);
+            if (!session.turn || ['completed', 'failed', 'cancelled'].includes(session.turn.status)) return;
+            if (event.type === 'turn_start') {
+                session.modelTurns += 1;
+                appendEvent(session, 'model.started', { modelRound: session.modelTurns });
+                // One initial model turn plus one follow-up for each allowed tool
+                // round. A further model turn means the Agent did not converge.
+                if (session.modelTurns > this.maxToolRounds + 1) {
+                    throw new Error(`Canvas Agent exceeded the ${this.maxToolRounds}-round tool-call limit.`);
+                }
+                return;
+            }
+            if (event.type === 'message_end' && event.message?.role === 'assistant') {
+                appendEvent(session, 'model.completed', { modelRound: session.modelTurns });
             }
         });
         this.sessions.set(sessionId, session);
@@ -182,6 +199,7 @@ export class CreativeAgentRuntime {
                     signal?.addEventListener('abort', abort, { once: true });
                     session.pending = {
                         toolCallId,
+                        toolName: name,
                         action,
                         resolve: result => {
                             signal?.removeEventListener('abort', abort);
@@ -192,6 +210,7 @@ export class CreativeAgentRuntime {
                     session.turn.status = 'awaiting_tool';
                     session.turn.action = action;
                     delete session.turn.approval;
+                    appendEvent(session, 'tool.requested', { toolName: name, toolCallId });
                     this.notify(session);
                 });
             },
@@ -300,7 +319,9 @@ export class CreativeAgentRuntime {
             status: 'running',
             toolRound: 0,
             traceIds: [],
+            events: [],
         };
+        appendEvent(session, 'turn.started');
         this.turns.set(session.turn.id, session);
         session.runPromise = session.agent.prompt(message)
             .then(() => {
@@ -312,14 +333,18 @@ export class CreativeAgentRuntime {
                     } else {
                         session.turn.status = 'completed';
                         session.turn.response = response || '已完成画布操作。';
+                        appendEvent(session, 'turn.completed');
                     }
+                    if (session.turn.status === 'failed') appendEvent(session, 'turn.failed');
                     session.turn.traceIds = [...session.traceIds];
                     this.notify(session);
                 }
             })
             .catch(error => {
+                if (session.turn.status === 'cancelled') return;
                 session.turn.status = 'failed';
                 session.turn.error = error instanceof Error ? error.message : String(error);
+                appendEvent(session, 'turn.failed');
                 this.notify(session);
             })
             .finally(() => {
@@ -367,11 +392,20 @@ export class CreativeAgentRuntime {
             session.turn.status = 'awaiting_approval';
             session.turn.approval = execution.proposal;
             delete session.turn.action;
+            appendEvent(session, 'approval.requested', {
+                toolName: session.pending.toolName,
+                toolCallId: session.pending.toolCallId,
+            });
             return publicTurn(session);
         }
 
         const pending = session.pending;
         session.pending = undefined;
+        appendEvent(session, 'tool.completed', {
+            toolName: pending.toolName,
+            toolCallId: pending.toolCallId,
+            outcome: execution.status === 'succeeded' ? 'succeeded' : 'failed',
+        });
         session.turn.status = 'running';
         delete session.turn.action;
         delete session.turn.approval;
@@ -386,6 +420,11 @@ export class CreativeAgentRuntime {
             throw new Error('Agent turn is not waiting for approval.');
         }
         if (decision === 'approved') {
+            appendEvent(session, 'approval.resolved', {
+                toolName: session.pending.toolName,
+                toolCallId: session.pending.toolCallId,
+                outcome: 'approved',
+            });
             session.turn.status = 'awaiting_tool';
             session.turn.action = { ...session.pending.action, approvalDecision: 'approved' };
             delete session.turn.approval;
@@ -395,6 +434,16 @@ export class CreativeAgentRuntime {
 
         const pending = session.pending;
         session.pending = undefined;
+        appendEvent(session, 'approval.resolved', {
+            toolName: pending.toolName,
+            toolCallId: pending.toolCallId,
+            outcome: 'rejected',
+        });
+        appendEvent(session, 'tool.completed', {
+            toolName: pending.toolName,
+            toolCallId: pending.toolCallId,
+            outcome: 'failed',
+        });
         session.turn.status = 'running';
         delete session.turn.action;
         delete session.turn.approval;
@@ -407,6 +456,44 @@ export class CreativeAgentRuntime {
             error: 'User rejected the proposed image generation.',
         }));
         return boundary;
+    }
+
+    async cancelTurn(turnId) {
+        const session = this.getSessionForTurn(turnId);
+        if (['completed', 'failed', 'cancelled'].includes(session.turn.status)) {
+            return publicTurn(session);
+        }
+
+        const activeRun = session.runPromise;
+        const pending = session.pending;
+        session.turn.status = 'cancelled';
+        delete session.turn.action;
+        delete session.turn.approval;
+        appendEvent(session, 'turn.cancelled', {
+            ...(pending?.toolName ? { toolName: pending.toolName } : {}),
+            ...(pending?.toolCallId ? { toolCallId: pending.toolCallId } : {}),
+            outcome: 'cancelled',
+        });
+        this.notify(session);
+
+        session.pending = undefined;
+        pending?.resolve({
+            ...textResult({ status: 'cancelled', code: 'user_cancelled', error: 'User stopped the Agent turn.' }),
+            terminate: true,
+        });
+        session.agent.abort();
+        if (activeRun) await activeRun.catch(() => undefined);
+        // A cancelled Pi turn may contain an unresolved assistant tool call.
+        // Rebuild the next Agent from durable chat history instead of reusing
+        // that partial provider transcript.
+        this.sessions.delete(session.sessionId);
+        return publicTurn(session);
+    }
+
+    async cancelActiveTurn(sessionId) {
+        const session = this.sessions.get(sessionId);
+        if (!session?.turn || !session.runPromise) return undefined;
+        return this.cancelTurn(session.turn.id);
     }
 
     deleteSession(sessionId) {

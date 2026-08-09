@@ -12,6 +12,7 @@ export interface CreativeAgentRuntime {
     resumeActiveTurn(sessionId: string): Promise<AgentTurn | undefined>;
     completeTool(turnId: string, executions: AgentClientExecution[]): Promise<AgentTurn>;
     resolveApproval(turnId: string, decision: 'approved' | 'rejected'): Promise<AgentTurn>;
+    cancelTurn(turnId: string): Promise<AgentTurn>;
     getTurn(turnId: string): AgentTurn | undefined;
     deleteSession(sessionId: string): void;
 }

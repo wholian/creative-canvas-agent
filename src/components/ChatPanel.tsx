@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { X, History, Paperclip, Globe, Settings, Send, Sparkles, Plus, Loader2, ChevronLeft, Trash2, MessageSquare, ShieldCheck, Clock3, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, History, Paperclip, Globe, Settings, Send, Sparkles, Plus, Loader2, ChevronLeft, Trash2, MessageSquare, ShieldCheck, Clock3, CheckCircle2, AlertCircle, Square } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import {
     useChatAgent,
@@ -18,6 +18,7 @@ import {
 import type { AgentClientAction as CanvasAction, AgentClientExecution as CanvasActionExecution } from '../agent-runtime/clientTools.ts';
 import type { GenerationJob } from '../generation-domain/index.ts';
 import { shouldSubmitChatMessage } from '../utils/chatInputKeyboard';
+import { describeAgentEvent, describeAgentTurn } from '../agent-runtime/runPresentation.ts';
 
 // ============================================================================
 // TYPES
@@ -76,7 +77,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         pendingApproval,
         isApprovalExecuting,
         activeGenerationJob,
+        activeTurn,
+        isTurnActive,
+        isCancellingTurn,
         sendMessage,
+        cancelActiveTurn,
         approvePendingApproval,
         rejectPendingApproval,
         startNewChat,
@@ -170,7 +175,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     };
 
     const handleSend = async () => {
-        if ((!message.trim() && attachedMedia.length === 0) || isLoading || pendingApproval) return;
+        if ((!message.trim() && attachedMedia.length === 0) || isLoading || pendingApproval || isTurnActive) return;
 
         const currentMessage = message;
         const currentMedia = attachedMedia;
@@ -240,6 +245,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     if (!isOpen) return null;
 
     const showHighlight = isDraggingNode || isDragOver;
+    const generationJobIsRunning = activeGenerationJob?.status === 'queued' || activeGenerationJob?.status === 'running';
 
     return (
         <div
@@ -573,6 +579,35 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
             {/* Input Area */}
             <div className={`p-4 border-t ${isDark ? 'border-neutral-800' : 'border-neutral-200'}`}>
+                {isTurnActive && (
+                    <details
+                        data-agent-run-status
+                        className={`mb-3 rounded-xl border px-3 py-2 ${isDark ? 'border-cyan-500/25 bg-cyan-950/15' : 'border-cyan-200 bg-cyan-50'}`}
+                    >
+                        <summary className="flex cursor-pointer list-none items-center gap-2 text-xs">
+                            <Loader2 size={13} className="flex-none animate-spin text-cyan-400" />
+                            <span className={`flex-1 font-medium ${isDark ? 'text-neutral-200' : 'text-neutral-800'}`}>
+                                {describeAgentTurn(activeTurn, true)}
+                            </span>
+                            {activeTurn && (
+                                <span className="text-[10px] text-neutral-500">{activeTurn.toolRound}/{5}</span>
+                            )}
+                        </summary>
+                        {activeTurn?.events.length ? (
+                            <div className={`mt-2 space-y-1 border-t pt-2 ${isDark ? 'border-neutral-800' : 'border-cyan-100'}`}>
+                                {activeTurn.events.map(event => (
+                                    <div key={event.id} className="flex items-center gap-2 text-[11px] text-neutral-500">
+                                        <span className="h-1.5 w-1.5 flex-none rounded-full bg-cyan-500/70" />
+                                        <span className="flex-1">{describeAgentEvent(event)}</span>
+                                        <span className="tabular-nums">
+                                            {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null}
+                    </details>
+                )}
                 <div className={`rounded-2xl p-3 ${isDark ? 'bg-neutral-800' : 'bg-neutral-100'}`}>
                     {/* Attached Media Preview */}
                     {attachedMedia.length > 0 && (
@@ -610,7 +645,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                         className={`w-full bg-transparent text-sm outline-none mb-3 resize-none min-h-[24px] max-h-[120px] ${isDark ? 'text-white placeholder:text-neutral-500' : 'text-neutral-900 placeholder:text-neutral-400'}`}
                         rows={1}
                         style={{ scrollbarWidth: 'none' }}
-                        disabled={isLoading || Boolean(pendingApproval)}
+                        disabled={isLoading || isTurnActive || Boolean(pendingApproval)}
                         onCompositionStart={() => {
                             isComposingRef.current = true;
                         }}
@@ -651,15 +686,20 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                 <Settings size={16} />
                             </button>
                             <button
-                                onClick={handleSend}
-                                disabled={isLoading || Boolean(pendingApproval) || (!message.trim() && !attachedMedia)}
-                                className={`p-2 rounded-full transition-colors text-white ${isLoading || pendingApproval || (!message.trim() && !attachedMedia)
-                                    ? 'bg-neutral-600 cursor-not-allowed'
-                                    : 'bg-cyan-500 hover:bg-cyan-400'
+                                onClick={isTurnActive ? cancelActiveTurn : handleSend}
+                                disabled={isTurnActive ? isCancellingTurn || generationJobIsRunning : isLoading || Boolean(pendingApproval) || (!message.trim() && attachedMedia.length === 0)}
+                                title={generationJobIsRunning ? 'The approved generation job is already running' : isTurnActive ? 'Stop Agent turn' : 'Send'}
+                                className={`p-2 rounded-full transition-colors text-white ${isTurnActive
+                                    ? generationJobIsRunning ? 'cursor-not-allowed bg-neutral-600' : 'bg-red-500 hover:bg-red-400 disabled:bg-red-900'
+                                    : isLoading || pendingApproval || (!message.trim() && attachedMedia.length === 0)
+                                        ? 'bg-neutral-600 cursor-not-allowed'
+                                        : 'bg-cyan-500 hover:bg-cyan-400'
                                     }`}
                             >
-                                {isLoading ? (
+                                {isCancellingTurn ? (
                                     <Loader2 size={14} className="animate-spin" />
+                                ) : isTurnActive ? (
+                                    <Square size={13} fill="currentColor" />
                                 ) : (
                                     <Send size={14} />
                                 )}

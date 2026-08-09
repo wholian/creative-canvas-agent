@@ -228,6 +228,34 @@ test('HTTP transport aborts a request at the configured timeout', async () => {
     );
 });
 
+test('HTTP transport distinguishes caller cancellation from provider timeout', async () => {
+    const configs = new ProviderRuntimeConfigStore([{
+        providerId: 'cancelled-gateway',
+        baseUrl: 'https://cancelled.example/v1',
+        apiKey: 'secret',
+        timeoutMs: 30_000,
+    }]);
+    const fakeFetch: typeof fetch = (_input, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+        });
+    });
+    const transport = new OpenAICompatibleHttpTransport(configs, fakeFetch);
+    const controller = new AbortController();
+    const request = transport.complete(
+        { model: 'model', messages: [] },
+        { providerId: 'cancelled-gateway', signal: controller.signal },
+    );
+    controller.abort();
+
+    await assert.rejects(
+        request,
+        error => assertGatewayError(error, { code: 'invocation_cancelled', retryable: false }),
+    );
+});
+
 test('HTTP transport rejects a successful response with invalid JSON', async () => {
     const configs = new ProviderRuntimeConfigStore([{
         providerId: 'gateway-a',

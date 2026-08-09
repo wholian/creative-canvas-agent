@@ -96,26 +96,33 @@ export class OpenAICompatibleHttpTransport implements OpenAIChatTransport, OpenA
 
     async complete(
         request: OpenAIChatCompletionRequest,
-        context: { providerId: string },
+        context: { providerId: string; signal?: AbortSignal },
     ): Promise<OpenAIChatCompletionResponse> {
         return this.postCompletion<OpenAIChatCompletionResponse>(request, context);
     }
 
     async generateImage(
         request: OpenAIImageChatRequest,
-        context: { providerId: string },
+        context: { providerId: string; signal?: AbortSignal },
     ): Promise<OpenAIImageChatResponse> {
         return this.postCompletion<OpenAIImageChatResponse>(request, context);
     }
 
     private async postCompletion<TResponse>(
         request: OpenAIChatCompletionRequest | OpenAIImageChatRequest,
-        context: { providerId: string },
+        context: { providerId: string; signal?: AbortSignal },
     ): Promise<TResponse> {
         const config = this.configs.require(context.providerId);
         const baseUrl = normalizeOpenAICompatibleBaseUrl(config.baseUrl);
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+        let didTimeout = false;
+        const timeout = setTimeout(() => {
+            didTimeout = true;
+            controller.abort();
+        }, config.timeoutMs);
+        const abortFromCaller = () => controller.abort();
+        if (context.signal?.aborted) abortFromCaller();
+        else context.signal?.addEventListener('abort', abortFromCaller, { once: true });
 
         try {
             const response = await this.fetchImplementation(`${baseUrl}/chat/completions`, {
@@ -143,6 +150,14 @@ export class OpenAICompatibleHttpTransport implements OpenAIChatTransport, OpenA
         } catch (error) {
             if (error instanceof ModelGatewayError) throw error;
             if (isAbortError(error)) {
+                if (!didTimeout && context.signal?.aborted) {
+                    throw new ModelGatewayError(
+                        'invocation_cancelled',
+                        'Model invocation was cancelled.',
+                        undefined,
+                        { retryable: false },
+                    );
+                }
                 throw new ModelGatewayError(
                     'provider_timeout',
                     `OpenAI-compatible provider timed out after ${config.timeoutMs} ms.`,
@@ -158,6 +173,7 @@ export class OpenAICompatibleHttpTransport implements OpenAIChatTransport, OpenA
             );
         } finally {
             clearTimeout(timeout);
+            context.signal?.removeEventListener('abort', abortFromCaller);
         }
     }
 }

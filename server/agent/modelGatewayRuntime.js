@@ -55,14 +55,14 @@ export function createCanvasChatModelGatewayRuntime(config, options = {}) {
 
     return {
         traceStore,
-        invoke({ messages, tools = undefined, parameters = undefined }) {
+        invoke({ messages, tools = undefined, parameters = undefined }, options = {}) {
             return gateway.invoke({
                 modelId: CHAT_MODEL_ID,
                 capability: 'chat',
                 messages,
                 tools,
                 parameters,
-            });
+            }, options);
         },
     };
 }

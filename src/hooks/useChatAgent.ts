@@ -51,7 +51,11 @@ interface UseChatAgentReturn {
     pendingApproval: PendingExecutionApproval | null;
     isApprovalExecuting: boolean;
     activeGenerationJob: GenerationJob | null;
+    activeTurn: AgentTurn | null;
+    isTurnActive: boolean;
+    isCancellingTurn: boolean;
     sendMessage: (content: string, media?: { type: 'image' | 'video'; url: string; base64?: string }[]) => Promise<void>;
+    cancelActiveTurn: () => Promise<void>;
     approvePendingApproval: () => Promise<void>;
     rejectPendingApproval: () => Promise<void>;
     startNewChat: () => void;
@@ -97,6 +101,9 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
     const [pendingApproval, setPendingApproval] = useState<PendingExecutionApproval | null>(null);
     const [isApprovalExecuting, setIsApprovalExecuting] = useState(false);
     const [activeGenerationJob, setActiveGenerationJob] = useState<GenerationJob | null>(null);
+    const [activeTurn, setActiveTurn] = useState<AgentTurn | null>(null);
+    const [isTurnActive, setIsTurnActive] = useState(false);
+    const [isCancellingTurn, setIsCancellingTurn] = useState(false);
     const didRestoreLatestSessionRef = useRef(false);
 
     const ensureSession = useCallback(() => {
@@ -140,11 +147,23 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
     const consumeRuntimeResponse = useCallback(async (initial: RuntimeResponse): Promise<void> => {
         const consume = async (data: RuntimeResponse): Promise<void> => {
             const { turn } = data;
+            setActiveTurn(turn);
+            setIsTurnActive(!['completed', 'failed', 'cancelled'].includes(turn.status));
             if (turn.status === 'completed') {
                 await finishAgentResponse(data);
+                setActiveTurn(null);
                 return;
             }
-            if (turn.status === 'failed') throw new Error(turn.error || 'Agent Runtime failed.');
+            if (turn.status === 'cancelled') {
+                setPendingApproval(null);
+                setActiveGenerationJob(null);
+                setActiveTurn(null);
+                return;
+            }
+            if (turn.status === 'failed') {
+                setActiveTurn(null);
+                throw new Error(turn.error || 'Agent Runtime failed.');
+            }
             if (turn.status === 'awaiting_approval') {
                 if (!turn.approval) throw new Error('Agent Runtime returned an empty approval request.');
                 setActiveGenerationJob(null);
@@ -189,13 +208,14 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         content: string,
         media?: { type: 'image' | 'video'; url: string; base64?: string }[],
     ) => {
-        if (pendingApproval) {
-            setError('Please approve or reject the pending execution before sending another message.');
+        if (pendingApproval || isTurnActive) {
+            setError('Please finish or stop the active Agent turn before sending another message.');
             return;
         }
         const currentSessionId = ensureSession();
         setError(null);
         setIsLoading(true);
+        setIsTurnActive(true);
         setMessages(previous => [...previous, {
             id: generateMessageId(),
             role: 'user',
@@ -217,11 +237,37 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         } catch (sendError) {
             const message = sendError instanceof Error ? sendError.message : 'Failed to send message';
             setError(message);
+            setIsTurnActive(false);
+            setActiveTurn(null);
             console.error('Chat error:', sendError);
         } finally {
             setIsLoading(false);
         }
-    }, [consumeRuntimeResponse, ensureSession, pendingApproval]);
+    }, [consumeRuntimeResponse, ensureSession, isTurnActive, pendingApproval]);
+
+    const cancelActiveTurn = useCallback(async () => {
+        if (!sessionId || isCancellingTurn || !isTurnActive) return;
+        setError(null);
+        setIsCancellingTurn(true);
+        try {
+            const response = await fetch(`/api/chat/sessions/${sessionId}/active-turn/cancel`, {
+                method: 'POST',
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || response.statusText);
+            setPendingApproval(null);
+            setActiveGenerationJob(null);
+            setActiveTurn(null);
+            setIsTurnActive(false);
+            setIsLoading(false);
+        } catch (cancelError) {
+            const message = cancelError instanceof Error ? cancelError.message : 'Failed to stop the Agent turn';
+            setError(message);
+            console.error('Agent cancellation error:', cancelError);
+        } finally {
+            setIsCancellingTurn(false);
+        }
+    }, [isCancellingTurn, isTurnActive, sessionId]);
 
     const resolvePendingApproval = useCallback(async (decision: 'approved' | 'rejected') => {
         if (!pendingApproval || isApprovalExecuting) return;
@@ -264,6 +310,8 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
             setTopic(data.topic);
             setActiveGenerationJob(null);
             setPendingApproval(null);
+            setActiveTurn(null);
+            setIsTurnActive(false);
 
             const activeResponse = await fetch(`/api/chat/sessions/${targetSessionId}/active-turn`);
             if (!activeResponse.ok) {
@@ -271,10 +319,15 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
                 throw new Error(activeError.error || 'Failed to reconnect the active Agent turn.');
             }
             const activeData = await activeResponse.json() as RuntimeResponse & { turn: AgentTurn | null };
-            if (activeData.turn) await consumeRuntimeResponse(activeData as RuntimeResponse);
+            if (activeData.turn) {
+                setIsTurnActive(true);
+                await consumeRuntimeResponse(activeData as RuntimeResponse);
+            }
         } catch (loadError) {
             const message = loadError instanceof Error ? loadError.message : 'Failed to load session';
             setError(message);
+            setIsTurnActive(false);
+            setActiveTurn(null);
             console.error('Load session error:', loadError);
         } finally {
             setIsLoading(false);
@@ -290,6 +343,8 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
                 setTopic(null);
                 setSessionId(generateSessionId());
                 setActiveGenerationJob(null);
+                setActiveTurn(null);
+                setIsTurnActive(false);
             }
         } catch (deleteError) {
             console.error('Failed to delete session:', deleteError);
@@ -297,8 +352,8 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
     }, [refreshSessions, sessionId]);
 
     const startNewChat = useCallback(() => {
-        if (pendingApproval) {
-            setError('Approve or reject the pending execution before starting a new chat.');
+        if (pendingApproval || isTurnActive) {
+            setError('Finish or stop the active Agent turn before starting a new chat.');
             return;
         }
         setMessages([]);
@@ -306,7 +361,9 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         setSessionId(generateSessionId());
         setError(null);
         setActiveGenerationJob(null);
-    }, [pendingApproval]);
+        setActiveTurn(null);
+        setIsTurnActive(false);
+    }, [isTurnActive, pendingApproval]);
 
     useEffect(() => {
         if (didRestoreLatestSessionRef.current) return;
@@ -332,7 +389,11 @@ export function useChatAgent({ onCanvasActions }: UseChatAgentOptions = {}): Use
         pendingApproval,
         isApprovalExecuting,
         activeGenerationJob,
+        activeTurn,
+        isTurnActive,
+        isCancellingTurn,
         sendMessage,
+        cancelActiveTurn,
         approvePendingApproval: () => resolvePendingApproval('approved'),
         rejectPendingApproval: () => resolvePendingApproval('rejected'),
         startNewChat,

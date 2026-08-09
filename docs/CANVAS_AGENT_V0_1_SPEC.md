@@ -191,6 +191,7 @@ interface CreativeAgentRuntime {
   resumeActiveTurn(sessionId: string): Promise<AgentTurn | undefined>;
   resolveApproval(proposalId: string, decision: "approved" | "rejected"): Promise<AgentTurn>;
   completeTool(toolCallId: string, result: CanvasOperationResult | GenerationResult): Promise<AgentTurn>;
+  cancelTurn(turnId: string): Promise<AgentTurn>;
   getTurn(turnId: string): AgentTurn | undefined;
 }
 ```
@@ -209,7 +210,7 @@ PiCreativeAgentRuntime implements CreativeAgentRuntime
 FakeCreativeAgentRuntime implements CreativeAgentRuntime
 ```
 
-这样 Runtime 测试无需真实模型即可执行。`steer`、`followUp`、`abort`、事件流和持久化接口等能力在出现真实需求后再扩展，不进入第一阶段。
+这样 Runtime 测试无需真实模型即可执行。`steer`、`followUp`、上下文压缩、流式传输和持久化接口等能力在出现真实需求后再扩展，不进入第一阶段。v0.2 只增加正式取消和内存事件记录，不引入通用事件流框架。
 
 ### 5.4 Runtime 的最小职责与领域边界（待审核）
 
@@ -228,7 +229,7 @@ Runtime 第一阶段只新增一个必要状态对象 `AgentTurn`：
 interface AgentTurn {
   id: string;
   sessionId: string;
-  status: "running" | "awaiting_tool" | "awaiting_approval" | "completed" | "failed";
+  status: "running" | "awaiting_tool" | "awaiting_approval" | "cancelled" | "completed" | "failed";
   toolRound: number;
   pendingToolCall?: {
     toolCallId: string;
@@ -238,8 +239,21 @@ interface AgentTurn {
   pendingProposalId?: string;
   finalResponse?: string;
   error?: string;
+  events: AgentTurnEvent[];
 }
 ```
+
+`AgentTurnEvent` 是单次 Turn 内只追加、不回写的轻量运行记录。v0.2 只记录
+`turn.started`、`model.started`、`model.completed`、`tool.requested`、
+`tool.completed`、`approval.requested`、`approval.resolved`、`turn.completed`、
+`turn.failed` 和 `turn.cancelled`。它用于解释当前运行阶段，不复制 Canvas Operation、
+Trace 或 GenerationJob 的完整数据，也暂不持久化。
+
+取消 MUST 中断当前模型或尚未产生外部副作用的等待工具、将 Turn 标记为 `cancelled`、追加一次
+`turn.cancelled` 事件并释放该 Session 的 active Turn。取消后用户必须能够立即开始
+下一轮；取消不得写入虚假的 Assistant 完成消息。服务端同时提供按 Session 取消当前
+Turn 的入口，使浏览器在首个模型边界返回前也能停止运行。已经批准并提交给供应商的
+`GenerationJob` 不得伪装为已取消；任务取消能力留给 Generation Domain 单独实现。
 
 `ExecutionProposal` 复用第 10.1 节已经实现的审批协议，不在 Runtime 中重新定义。模型 Tool Call 使用统一 Model Gateway 已有类型；工具执行结果使用 Canvas Operation Result 或 Generation Result，不新增 `ToolExecution` 领域实体。
 
@@ -1071,6 +1085,10 @@ v0.1 至少通过以下测试：
 27. 图片节点连接到另一个图片节点后，目标节点持续显示参考图缩略图和数量；断开后立即消失。
 28. 生图审批卡展示并冻结当前参考图，批准后 `GenerationJob` 保存同一组来源节点 ID 和 URL。
 29. OpenAI-compatible 生图请求把冻结参考图作为 `image_url` 内容发送，Trace 不保存其 Base64 正文。
+30. 运行中的 Turn 返回只追加的事件记录，前端可显示当前阶段并展开查看已发生步骤。
+31. 用户停止 Turn 时，取消信号能够贯通 Pi、Model Gateway 和供应商 HTTP 请求。
+32. 被取消的 Turn 不写入虚假 Assistant 回复，同一 Session 可以立即开始新的 Turn。
+33. HTTP Transport 能区分用户取消与供应商超时，并分别记录结构化错误。
 
 ## 19. 建议的代码边界
 

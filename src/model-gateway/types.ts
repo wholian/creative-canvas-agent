@@ -113,9 +113,13 @@ export interface GatewayInvocationResult extends ModelInvocationResult {
     traceId: string;
 }
 
+export interface ModelInvocationOptions {
+    signal?: AbortSignal;
+}
+
 export interface ModelAdapter {
     readonly protocol: ModelProtocol;
-    invoke(request: ResolvedModelInvocation): Promise<ModelInvocationResult>;
+    invoke(request: ResolvedModelInvocation, options?: ModelInvocationOptions): Promise<ModelInvocationResult>;
 }
 
 export type ModelGatewayErrorCode =
@@ -128,6 +132,7 @@ export type ModelGatewayErrorCode =
     | 'invalid_request'
     | 'invalid_parameter'
     | 'adapter_not_found'
+    | 'invocation_cancelled'
     | 'provider_timeout'
     | 'provider_access_denied'
     | 'provider_endpoint_not_found'

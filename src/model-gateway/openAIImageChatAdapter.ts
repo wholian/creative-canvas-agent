@@ -2,6 +2,7 @@ import {
     ModelGatewayError,
     type ModelAdapter,
     type ModelInvocationResult,
+    type ModelInvocationOptions,
     type ResolvedModelInvocation,
 } from './types.ts';
 
@@ -33,7 +34,7 @@ export interface OpenAIImageChatResponse {
 export interface OpenAIImageChatTransport {
     generateImage(
         request: OpenAIImageChatRequest,
-        context: { providerId: string },
+        context: { providerId: string; signal?: AbortSignal },
     ): Promise<OpenAIImageChatResponse>;
 }
 
@@ -68,7 +69,7 @@ export class OpenAIImageChatAdapter implements ModelAdapter {
         this.transport = transport;
     }
 
-    async invoke(request: ResolvedModelInvocation): Promise<ModelInvocationResult> {
+    async invoke(request: ResolvedModelInvocation, options: ModelInvocationOptions = {}): Promise<ModelInvocationResult> {
         if (request.capability !== 'image_generation') {
             throw new ModelGatewayError('unsupported_capability', 'OpenAI image Chat adapter only supports image_generation.');
         }
@@ -97,7 +98,7 @@ export class OpenAIImageChatAdapter implements ModelAdapter {
 
         let response: OpenAIImageChatResponse;
         try {
-            response = await this.transport.generateImage(payload, { providerId: request.provider.id });
+            response = await this.transport.generateImage(payload, { providerId: request.provider.id, signal: options.signal });
         } catch (error) {
             if (error instanceof ModelGatewayError) throw error;
             throw new ModelGatewayError(
